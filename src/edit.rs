@@ -10,8 +10,8 @@ const LINK_PICK_RADIUS: f32 = 32.0;
 const EDGE_WIDTH: f32 = 1.5;
 pub const SELECTED_COLOR: Color32 = Color32::WHITE;
 const MENU: [(MenuAction, &str, &str); 2] = [
-	(MenuAction::AddVertex, "Add Vertex", icon::BORING),
-	(MenuAction::SelectLinked, "Select Linked", icon::BORING),
+	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
+	(MenuAction::SelectLinked, "Select Linked (L)", icon::BORING),
 ];
 
 #[derive(Clone, Copy)]
@@ -208,6 +208,8 @@ impl EditMode {
 					}
 				} else if key(Key::E) {
 					self.extrude(mesh, cursor);
+				} else if key(Key::V) {
+					self.selection = vec![mesh.add_vertex(cursor)];
 				} else if key(Key::L) {
 					if self.selection.is_empty() {
 						let radius = LINK_PICK_RADIUS / view.scale;
