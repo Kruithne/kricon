@@ -113,7 +113,8 @@ impl eframe::App for App {
 		self.edit.draw(&self.mesh, &self.view, painter, self.accent);
 
 		self.toolbar.show(ui.ctx());
-		self.edit.show_menu(ui.ctx(), &mut self.mesh, &self.view);
+		self.edit
+			.show_menu(ui.ctx(), &mut self.mesh, &self.view, self.accent);
 		if self.toolbar.layers {
 			self.layers.show(
 				ui.ctx(),

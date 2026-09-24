@@ -1,3 +1,4 @@
+use crate::icon::{self, Icon};
 use eframe::egui;
 
 const PANEL_COLOR: egui::Color32 = egui::Color32::from_rgb(32, 32, 36);
@@ -6,12 +7,99 @@ const SELECTED_COLOR: egui::Color32 = egui::Color32::from_rgb(60, 60, 68);
 pub const FRAME_MARGIN: f32 = 4.0;
 const CONTENT_COLOR: egui::Color32 = egui::Color32::from_rgb(160, 160, 168);
 pub const CONTENT_ACTIVE_COLOR: egui::Color32 = egui::Color32::WHITE;
+pub const ITEM_HEIGHT: f32 = 28.0;
+const ICON_SIZE: f32 = 16.0;
+pub const PADDING: f32 = 8.0;
+const TEXT_SIZE: f32 = 14.0;
+const BORDER_WIDTH: f32 = 1.0;
+const CLOSE_SIZE: f32 = 20.0;
+const CLOSE_ICON_SIZE: f32 = 10.0;
 
 pub fn frame() -> egui::Frame {
 	egui::Frame::new()
 		.fill(PANEL_COLOR)
 		.corner_radius(8.0)
 		.inner_margin(FRAME_MARGIN)
+}
+
+pub fn bordered_frame(accent: egui::Color32) -> egui::Frame {
+	frame().stroke(egui::Stroke::new(BORDER_WIDTH, accent))
+}
+
+pub struct Header {
+	title: &'static str,
+	icon: Icon,
+	close: Option<Icon>,
+}
+
+impl Header {
+	pub fn new(title: &'static str, icon: &str, closable: bool) -> Self {
+		Self {
+			title,
+			icon: Icon::new(icon),
+			close: closable.then(|| Icon::new(icon::CLOSE)),
+		}
+	}
+
+	pub fn show(&mut self, ui: &mut egui::Ui, width: f32, accent: egui::Color32) -> bool {
+		let (header, _) =
+			ui.allocate_exact_size(egui::vec2(width, ITEM_HEIGHT), egui::Sense::hover());
+		let icon_rect = icon_rect(header);
+		paint_icon(ui, &mut self.icon, icon_rect, CONTENT_ACTIVE_COLOR);
+		paint_label(ui, icon_rect, self.title, CONTENT_ACTIVE_COLOR);
+
+		let mut closed = false;
+		if let Some(close_icon) = &mut self.close {
+			let close_rect = egui::Rect::from_center_size(
+				header.right_center() - egui::vec2(ITEM_HEIGHT / 2.0, 0.0),
+				egui::Vec2::splat(CLOSE_SIZE),
+			);
+			let close = ui.interact(close_rect, ui.id().with("close"), egui::Sense::click());
+			closed = close.clicked();
+			let close_color = highlight(ui, close_rect, &close, false);
+			paint_icon(
+				ui,
+				close_icon,
+				egui::Rect::from_center_size(
+					close_rect.center(),
+					egui::Vec2::splat(CLOSE_ICON_SIZE),
+				),
+				close_color,
+			);
+		}
+
+		ui.painter().hline(
+			header.x_range().expand(FRAME_MARGIN),
+			header.bottom(),
+			egui::Stroke::new(BORDER_WIDTH, accent),
+		);
+
+		closed
+	}
+}
+
+pub fn icon_rect(row: egui::Rect) -> egui::Rect {
+	egui::Rect::from_center_size(
+		row.left_center() + egui::vec2(PADDING + ICON_SIZE / 2.0, 0.0),
+		egui::Vec2::splat(ICON_SIZE),
+	)
+}
+
+pub fn paint_icon(ui: &egui::Ui, icon: &mut Icon, rect: egui::Rect, tint: egui::Color32) {
+	let pixels = (rect.width() * ui.ctx().pixels_per_point()).round() as usize;
+	let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+	ui.painter()
+		.image(icon.texture(ui.ctx(), pixels), rect, uv, tint);
+}
+
+pub fn paint_label(ui: &egui::Ui, after: egui::Rect, text: &str, color: egui::Color32) {
+	ui.painter().text(
+		after.right_center() + egui::vec2(PADDING, 0.0),
+		egui::Align2::LEFT_CENTER,
+		text,
+		egui::FontId::proportional(TEXT_SIZE),
+		color,
+	);
 }
 
 pub fn item(

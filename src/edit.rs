@@ -75,7 +75,7 @@ impl EditMode {
 		Self {
 			selection: Vec::new(),
 			operation: Operation::Idle,
-			menu: Menu::new(&MENU),
+			menu: Menu::new("Quick Menu", icon::BORING, &MENU),
 		}
 	}
 
@@ -127,12 +127,18 @@ impl EditMode {
 		}
 	}
 
-	pub fn show_menu(&mut self, ctx: &egui::Context, mesh: &mut Mesh, view: &View) {
+	pub fn show_menu(
+		&mut self,
+		ctx: &egui::Context,
+		mesh: &mut Mesh,
+		view: &View,
+		accent: Color32,
+	) {
 		let Operation::Menu { pos } = self.operation else {
 			return;
 		};
 
-		let Some(action) = self.menu.show(ctx, view.to_screen(pos)) else {
+		let Some(action) = self.menu.show(ctx, view.to_screen(pos), accent) else {
 			return;
 		};
 

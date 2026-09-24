@@ -1,34 +1,24 @@
 use crate::edit::{self, EditMode};
-use crate::icon::{self, Icon};
 use crate::mesh::Mesh;
-use crate::panel;
+use crate::panel::{self, Header};
 use crate::toolbar::Tool;
 use eframe::egui;
 use std::collections::HashMap;
 
 const PANEL_WIDTH: f32 = 160.0;
-const ITEM_HEIGHT: f32 = 28.0;
-const ICON_SIZE: f32 = 16.0;
-const CLOSE_SIZE: f32 = 20.0;
-const CLOSE_ICON_SIZE: f32 = 10.0;
 const INDICATOR_SIZE: f32 = 8.0;
 const INDICATOR_GAP: f32 = 2.0;
-const PADDING: f32 = 8.0;
-const TEXT_SIZE: f32 = 14.0;
 const DROP_COLOR: egui::Color32 = egui::Color32::WHITE;
 const MARGIN: f32 = 12.0;
-const BORDER_WIDTH: f32 = 1.0;
 
 pub struct Layers {
-	icon: Icon,
-	close_icon: Icon,
+	header: Header,
 }
 
 impl Layers {
 	pub fn new() -> Self {
 		Self {
-			icon: Icon::new(Tool::Layers.icon()),
-			close_icon: Icon::new(icon::CLOSE),
+			header: Header::new("Layers", Tool::Layers.icon(), true),
 		}
 	}
 
@@ -52,12 +42,8 @@ impl Layers {
 		let mut clicked = None;
 		let mut moved = None;
 
-		let icon_pixels = (ICON_SIZE * ctx.pixels_per_point()).round() as usize;
-		let close_pixels = (CLOSE_ICON_SIZE * ctx.pixels_per_point()).round() as usize;
-		let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-
 		egui::Window::new("Layers")
-			.frame(panel::frame().stroke(egui::Stroke::new(BORDER_WIDTH, accent)))
+			.frame(panel::bordered_frame(accent))
 			.title_bar(false)
 			.pivot(egui::Align2::RIGHT_TOP)
 			.default_pos(ctx.content_rect().right_top() + egui::vec2(-MARGIN, MARGIN))
@@ -67,59 +53,16 @@ impl Layers {
 				ui.spacing_mut().item_spacing.y = 2.0;
 				ui.set_width(PANEL_WIDTH);
 
-				let (header, _) = ui.allocate_exact_size(
-					egui::vec2(PANEL_WIDTH, ITEM_HEIGHT),
-					egui::Sense::hover(),
-				);
-				let icon_rect = egui::Rect::from_center_size(
-					header.left_center() + egui::vec2(PADDING + ICON_SIZE / 2.0, 0.0),
-					egui::Vec2::splat(ICON_SIZE),
-				);
-				ui.painter().image(
-					self.icon.texture(ctx, icon_pixels),
-					icon_rect,
-					uv,
-					panel::CONTENT_ACTIVE_COLOR,
-				);
-				ui.painter().text(
-					icon_rect.right_center() + egui::vec2(PADDING, 0.0),
-					egui::Align2::LEFT_CENTER,
-					"Layers",
-					egui::FontId::proportional(TEXT_SIZE),
-					panel::CONTENT_ACTIVE_COLOR,
-				);
-
-				let close_rect = egui::Rect::from_center_size(
-					header.right_center() - egui::vec2(ITEM_HEIGHT / 2.0, 0.0),
-					egui::Vec2::splat(CLOSE_SIZE),
-				);
-				let close = ui.interact(close_rect, ui.id().with("close"), egui::Sense::click());
-				if close.clicked() {
+				if self.header.show(ui, PANEL_WIDTH, accent) {
 					*open = false;
 				}
-				let close_color = panel::highlight(ui, close_rect, &close, false);
-				ui.painter().image(
-					self.close_icon.texture(ctx, close_pixels),
-					egui::Rect::from_center_size(
-						close_rect.center(),
-						egui::Vec2::splat(CLOSE_ICON_SIZE),
-					),
-					uv,
-					close_color,
-				);
-
-				ui.painter().hline(
-					header.x_range().expand(panel::FRAME_MARGIN),
-					header.bottom(),
-					egui::Stroke::new(BORDER_WIDTH, accent),
-				);
 
 				let mut rows = Vec::new();
 				let mut dragged = None;
 				for (index, &layer) in mesh.layers.iter().enumerate() {
 					let (rect, response, color) = panel::item(
 						ui,
-						egui::vec2(PANEL_WIDTH, ITEM_HEIGHT),
+						egui::vec2(PANEL_WIDTH, panel::ITEM_HEIGHT),
 						false,
 						egui::Sense::click_and_drag(),
 					);
@@ -131,7 +74,7 @@ impl Layers {
 					}
 
 					let indicator = egui::Rect::from_center_size(
-						rect.left_center() + egui::vec2(PADDING + INDICATOR_SIZE / 2.0, 0.0),
+						rect.left_center() + egui::vec2(panel::PADDING + INDICATOR_SIZE / 2.0, 0.0),
 						egui::Vec2::splat(INDICATOR_SIZE),
 					);
 					match selected.get(&layer) {
@@ -141,13 +84,7 @@ impl Layers {
 						Some(_) => draw_partial(ui.painter(), indicator, accent),
 						None => {}
 					}
-					ui.painter().text(
-						indicator.right_center() + egui::vec2(PADDING, 0.0),
-						egui::Align2::LEFT_CENTER,
-						format!("Shape {layer}"),
-						egui::FontId::proportional(TEXT_SIZE),
-						color,
-					);
+					panel::paint_label(ui, indicator, &format!("Shape {layer}"), color);
 					rows.push(rect);
 				}
 
