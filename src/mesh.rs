@@ -18,36 +18,20 @@ impl Mesh {
 		self.vertices.len() - 1
 	}
 
-	pub fn extrude_vertex(&mut self, source: usize) -> usize {
-		self.vertices.push(self.vertices[source]);
-		self.vertex_layers.push(self.vertex_layers[source]);
-		let vertex = self.vertices.len() - 1;
-		self.add_edge(source, vertex);
-		vertex
-	}
-
-	pub fn duplicate(&mut self, vertices: &[usize]) -> Vec<usize> {
-		let offset = self.vertices.len();
-		let copies: HashMap<usize, usize> = vertices
-			.iter()
-			.enumerate()
-			.map(|(index, &vertex)| (vertex, offset + index))
-			.collect();
-
-		for &vertex in vertices {
-			self.vertices.push(self.vertices[vertex]);
-			self.vertex_layers.push(self.vertex_layers[vertex]);
-		}
-
-		for index in 0..self.edges.len() {
-			let [a, b] = self.edges[index];
-			if let (Some(&a), Some(&b)) = (copies.get(&a), copies.get(&b)) {
-				self.edges.push([a, b]);
-			}
+	pub fn extrude(&mut self, vertices: &[usize]) -> Vec<usize> {
+		let copies = self.copy_vertices(vertices);
+		for (&source, &copy) in vertices.iter().zip(&copies) {
+			self.edges.push([source, copy]);
 		}
 
 		self.sync_layers();
-		(offset..self.vertices.len()).collect()
+		copies
+	}
+
+	pub fn duplicate(&mut self, vertices: &[usize]) -> Vec<usize> {
+		let copies = self.copy_vertices(vertices);
+		self.sync_layers();
+		copies
 	}
 
 	pub fn layer(&self, vertex: usize) -> u32 {
@@ -129,6 +113,29 @@ impl Mesh {
 		let ranks = self.ranks();
 		triangles.sort_by_key(|&[a, _, _]| std::cmp::Reverse(ranks[&self.vertex_layers[a]]));
 		triangles
+	}
+
+	fn copy_vertices(&mut self, vertices: &[usize]) -> Vec<usize> {
+		let offset = self.vertices.len();
+		let copies: HashMap<usize, usize> = vertices
+			.iter()
+			.enumerate()
+			.map(|(index, &vertex)| (vertex, offset + index))
+			.collect();
+
+		for &vertex in vertices {
+			self.vertices.push(self.vertices[vertex]);
+			self.vertex_layers.push(self.vertex_layers[vertex]);
+		}
+
+		for index in 0..self.edges.len() {
+			let [a, b] = self.edges[index];
+			if let (Some(&a), Some(&b)) = (copies.get(&a), copies.get(&b)) {
+				self.edges.push([a, b]);
+			}
+		}
+
+		(offset..self.vertices.len()).collect()
 	}
 
 	fn has_edge(&self, a: usize, b: usize) -> bool {

@@ -294,9 +294,9 @@ impl EditMode {
 						mesh.add_edge(a, b);
 					}
 				} else if key(Key::D) && input.modifiers.shift {
-					self.duplicate(mesh, cursor);
+					self.create(mesh, cursor, Mesh::duplicate);
 				} else if key(Key::E) {
-					self.extrude(mesh, cursor);
+					self.create(mesh, cursor, Mesh::extrude);
 				} else if key(Key::V) {
 					self.selection = vec![mesh.add_vertex(cursor)];
 				} else if key(Key::L) {
@@ -407,16 +407,18 @@ impl EditMode {
 		}
 	}
 
-	fn extrude(&mut self, mesh: &mut Mesh, cursor: Pos2) {
+	fn create(
+		&mut self,
+		mesh: &mut Mesh,
+		cursor: Pos2,
+		create: fn(&mut Mesh, &[usize]) -> Vec<usize>,
+	) {
 		if self.selection.is_empty() {
 			return;
 		}
 
 		let sources = std::mem::take(&mut self.selection);
-		for &source in &sources {
-			self.selection.push(mesh.extrude_vertex(source));
-		}
-
+		self.selection = create(mesh, &sources);
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
 	}
 
@@ -432,16 +434,6 @@ impl EditMode {
 			MergeTarget::Cursor => cursor,
 		};
 		self.selection = vec![mesh.merge(&self.selection, pos)];
-	}
-
-	fn duplicate(&mut self, mesh: &mut Mesh, cursor: Pos2) {
-		if self.selection.is_empty() {
-			return;
-		}
-
-		let sources = std::mem::take(&mut self.selection);
-		self.selection = mesh.duplicate(&sources);
-		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
 	}
 
 	fn begin_transform(
