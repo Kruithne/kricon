@@ -102,7 +102,11 @@ impl eframe::App for App {
 			egui::Sense::click_and_drag(),
 		);
 
-		self.view.update(&response, !self.edit.captures_scroll());
+		self.view.update(
+			&response,
+			!self.edit.captures_scroll(),
+			!self.edit.captures_middle(),
+		);
 
 		self.edit.update(&mut self.mesh, &self.view, &response);
 

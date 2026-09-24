@@ -18,20 +18,16 @@ impl View {
 		(pos - self.offset) / self.scale
 	}
 
-	pub fn update(&mut self, response: &egui::Response, zoom: bool) {
+	pub fn update(&mut self, response: &egui::Response, zoom: bool, pan: bool) {
 		if !response.hovered() {
 			return;
 		}
 
-		let (scroll, shift, cursor) = response.ctx.input(|input| {
-			(
-				input.smooth_scroll_delta.y,
-				input.modifiers.shift,
-				input.pointer.latest_pos(),
-			)
-		});
+		let (scroll, cursor) = response
+			.ctx
+			.input(|input| (input.smooth_scroll_delta.y, input.pointer.latest_pos()));
 
-		if shift && response.dragged_by(PointerButton::Middle) {
+		if pan && response.dragged_by(PointerButton::Middle) {
 			self.offset += response.drag_delta();
 		}
 

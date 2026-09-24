@@ -236,6 +236,10 @@ impl EditMode {
 		)
 	}
 
+	pub fn captures_middle(&self) -> bool {
+		matches!(self.operation, Operation::Brush)
+	}
+
 	pub fn selection(&self) -> &[usize] {
 		&self.selection
 	}
@@ -517,7 +521,7 @@ impl EditMode {
 					self.operation = Operation::Idle;
 				} else if down(PointerButton::Primary) {
 					self.extend_selection(inside);
-				} else if down(PointerButton::Middle) && !input.modifiers.shift {
+				} else if down(PointerButton::Middle) {
 					let inside: Vec<usize> = inside.collect();
 					self.selection.retain(|vertex| !inside.contains(vertex));
 				}
