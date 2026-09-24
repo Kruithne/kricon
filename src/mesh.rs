@@ -1,7 +1,9 @@
-use eframe::egui::{Pos2, Rect, Vec2};
+use eframe::egui::{Pos2, Rect, Vec2, vec2};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Default)]
+const MIN_MITER: f32 = 0.01;
+
+#[derive(Clone, Default)]
 pub struct Mesh {
 	pub vertices: Vec<Pos2>,
 	pub edges: Vec<[usize; 2]>,
@@ -41,6 +43,80 @@ impl Mesh {
 
 		self.sync_layers();
 		copies
+	}
+
+	pub fn inset(&mut self, vertices: &[usize]) -> (Vec<usize>, Vec<Vec2>) {
+		let faces: Vec<Vec<usize>> = self
+			.faces()
+			.into_iter()
+			.filter(|face| face.iter().all(|vertex| vertices.contains(vertex)))
+			.collect();
+
+		let mut counts: HashMap<Vec<usize>, usize> = HashMap::new();
+		let mut directed = Vec::new();
+		for face in &faces {
+			for (index, &a) in face.iter().enumerate() {
+				let b = face[(index + 1) % face.len()];
+				*counts.entry(face_key(&[a, b])).or_default() += 1;
+				directed.push([a, b]);
+			}
+		}
+
+		let boundary: Vec<[usize; 2]> = directed
+			.into_iter()
+			.filter(|&[a, b]| counts[&face_key(&[a, b])] == 1)
+			.collect();
+		let next: HashMap<usize, usize> = boundary.iter().map(|&[a, b]| (a, b)).collect();
+		let prev: HashMap<usize, usize> = boundary.iter().map(|&[a, b]| (b, a)).collect();
+
+		let mut copies = HashMap::new();
+		let mut directions = Vec::new();
+		for &[vertex, _] in &boundary {
+			if copies.contains_key(&vertex) {
+				continue;
+			}
+
+			let pos = self.vertices[vertex];
+			let inward = |from: Pos2, to: Pos2| {
+				let edge = to - from;
+				vec2(-edge.y, edge.x).normalized()
+			};
+			let a = inward(self.vertices[prev[&vertex]], pos);
+			let b = inward(pos, self.vertices[next[&vertex]]);
+			directions.push((a + b) / (1.0 + a.dot(b)).max(MIN_MITER));
+
+			copies.insert(vertex, self.vertices.len());
+			self.vertices.push(pos);
+			self.vertex_layers.push(self.vertex_layers[vertex]);
+		}
+
+		let map = |vertex: usize| copies.get(&vertex).copied().unwrap_or(vertex);
+		for edge in &mut self.edges {
+			if counts.get(&face_key(edge)) == Some(&2) {
+				*edge = edge.map(map);
+			}
+		}
+
+		let keys: Vec<Vec<usize>> = faces.iter().map(|face| face_key(face)).collect();
+		for hole in &mut self.holes {
+			if keys.contains(hole) {
+				*hole = face_key(&hole.iter().map(|&vertex| map(vertex)).collect::<Vec<_>>());
+			}
+		}
+
+		for &[a, b] in &boundary {
+			self.edges.push([map(a), map(b)]);
+		}
+
+		let mut inner = Vec::new();
+		for &[vertex, _] in &boundary {
+			let copy = map(vertex);
+			if !inner.contains(&copy) {
+				self.edges.push([vertex, copy]);
+				inner.push(copy);
+			}
+		}
+		(inner, directions)
 	}
 
 	pub fn duplicate(&mut self, vertices: &[usize]) -> Vec<usize> {

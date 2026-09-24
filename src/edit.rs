@@ -101,6 +101,7 @@ enum TransformKind {
 	Translate,
 	Rotate,
 	Scale,
+	Inset(Vec<Vec2>),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -115,7 +116,7 @@ struct Transform {
 	pivot: Pos2,
 	original: Vec<Pos2>,
 	drag: bool,
-	created_from: Option<Vec<usize>>,
+	created_from: Option<(Vec<usize>, Mesh)>,
 	axis: Option<Axis>,
 	primitive: bool,
 	segments: Option<usize>,
@@ -123,7 +124,7 @@ struct Transform {
 }
 
 impl Transform {
-	fn apply(&self, pos: Pos2, cursor: Pos2, snap: bool) -> Pos2 {
+	fn apply(&self, index: usize, pos: Pos2, cursor: Pos2, snap: bool) -> Pos2 {
 		let offset = pos - self.pivot;
 		let start = self.anchor - self.pivot;
 		let current = cursor - self.pivot;
@@ -138,6 +139,9 @@ impl Transform {
 				offset * (current.length() / start.length())
 			}
 			(TransformKind::Scale, _) => offset,
+			(TransformKind::Inset(directions), _) => {
+				offset + directions[index] * (start.length() - current.length())
+			}
 		};
 
 		let free = match (self.kind == TransformKind::Rotate, self.axis) {
@@ -215,8 +219,9 @@ impl EditMode {
 		};
 
 		match transform.created_from {
-			Some(sources) => {
-				mesh.remove_vertices(std::mem::replace(&mut self.selection, sources));
+			Some((sources, snapshot)) => {
+				*mesh = snapshot;
+				self.selection = sources;
 			}
 			None => {
 				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
@@ -393,6 +398,8 @@ impl EditMode {
 					self.create(mesh, cursor, Mesh::duplicate);
 				} else if key(Key::E) {
 					self.create(mesh, cursor, Mesh::extrude);
+				} else if key(Key::I) {
+					self.inset(mesh, cursor);
 				} else if key(Key::V) {
 					self.selection = vec![mesh.add_vertex(cursor)];
 				} else if key(Key::L) {
@@ -487,8 +494,11 @@ impl EditMode {
 						.collect();
 				}
 
-				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
-					mesh.vertices[index] = transform.apply(pos, cursor, input.modifiers.alt);
+				for (index, (&vertex, &pos)) in
+					self.selection.iter().zip(&transform.original).enumerate()
+				{
+					mesh.vertices[vertex] =
+						transform.apply(index, pos, cursor, input.modifiers.alt);
 				}
 
 				let (confirm, cancel) = if transform.drag {
@@ -606,9 +616,33 @@ impl EditMode {
 			return;
 		}
 
+		let snapshot = mesh.clone();
 		let sources = std::mem::take(&mut self.selection);
 		self.selection = create(mesh, &sources);
-		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
+		self.begin_transform(
+			mesh,
+			TransformKind::Translate,
+			cursor,
+			false,
+			Some((sources, snapshot)),
+		);
+	}
+
+	fn inset(&mut self, mesh: &mut Mesh, cursor: Pos2) {
+		let snapshot = mesh.clone();
+		let (inner, directions) = mesh.inset(&self.selection);
+		if inner.is_empty() {
+			return;
+		}
+
+		let sources = std::mem::replace(&mut self.selection, inner);
+		self.begin_transform(
+			mesh,
+			TransformKind::Inset(directions),
+			cursor,
+			false,
+			Some((sources, snapshot)),
+		);
 	}
 
 	fn add_primitive(
@@ -618,8 +652,15 @@ impl EditMode {
 		cursor: Pos2,
 		segments: Option<usize>,
 	) {
+		let snapshot = mesh.clone();
 		let sources = std::mem::replace(&mut self.selection, mesh.add_loop(points));
-		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
+		self.begin_transform(
+			mesh,
+			TransformKind::Translate,
+			cursor,
+			false,
+			Some((sources, snapshot)),
+		);
 		if let Operation::Transform(transform) = &mut self.operation {
 			transform.primitive = true;
 			transform.segments = segments;
@@ -646,7 +687,7 @@ impl EditMode {
 		kind: TransformKind,
 		anchor: Pos2,
 		drag: bool,
-		created_from: Option<Vec<usize>>,
+		created_from: Option<(Vec<usize>, Mesh)>,
 	) {
 		if self.selection.is_empty() {
 			return;
