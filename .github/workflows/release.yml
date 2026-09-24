@@ -17,7 +17,7 @@ jobs:
     outputs:
       name: ${{ steps.version.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -61,7 +61,7 @@ jobs:
     env:
       ASSET: kricon-${{ needs.version.outputs.name }}-${{ matrix.platform }}.${{ matrix.archive }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - if: runner.os == 'Linux'
         run: |
@@ -83,7 +83,7 @@ jobs:
             tar -czf "$ASSET" -C dist .
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}
           path: ${{ env.ASSET }}
@@ -92,7 +92,7 @@ jobs:
     needs: [version, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: assets
           merge-multiple: true
