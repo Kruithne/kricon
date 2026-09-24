@@ -14,7 +14,7 @@ use edit::EditMode;
 use eframe::egui;
 use layers::Layers;
 use mesh::Mesh;
-use toolbar::{Tool, Toolbar};
+use toolbar::Toolbar;
 use view::View;
 
 const ICON_PNG: &[u8] = include_bytes!("../res/kricon.png");
@@ -107,11 +107,7 @@ impl eframe::App for App {
 
 		self.view.update(&response, !self.edit.captures_scroll());
 
-		if self.toolbar.active == Some(Tool::Edit) {
-			self.edit.update(&mut self.mesh, &self.view, &response);
-		} else {
-			self.edit.cancel(&mut self.mesh);
-		}
+		self.edit.update(&mut self.mesh, &self.view, &response);
 
 		let painter = ui.painter();
 		painter.rect_filled(rect, 0.0, BACKGROUND_COLOR);

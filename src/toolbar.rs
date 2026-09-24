@@ -2,14 +2,13 @@ use crate::icon::{self, Icon};
 use crate::panel;
 use eframe::egui;
 
-const TOOLS: [Tool; 4] = [Tool::Edit, Tool::Brush, Tool::BoxSelect, Tool::Layers];
+const TOOLS: [Tool; 3] = [Tool::Brush, Tool::BoxSelect, Tool::Layers];
 const BUTTON_SIZE: f32 = 36.0;
 const ICON_SIZE: f32 = 20.0;
 const MARGIN: f32 = 12.0;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tool {
-	Edit,
 	Brush,
 	BoxSelect,
 	Layers,
@@ -18,14 +17,13 @@ pub enum Tool {
 impl Tool {
 	pub fn icon(self) -> &'static str {
 		match self {
-			Tool::Edit | Tool::Brush | Tool::BoxSelect | Tool::Layers => icon::BORING,
+			Tool::Brush | Tool::BoxSelect | Tool::Layers => icon::BORING,
 		}
 	}
 }
 
 pub struct Toolbar {
 	icons: Vec<Icon>,
-	pub active: Option<Tool>,
 	pub layers: bool,
 }
 
@@ -33,7 +31,6 @@ impl Toolbar {
 	pub fn new() -> Self {
 		Self {
 			icons: TOOLS.iter().map(|tool| Icon::new(tool.icon())).collect(),
-			active: None,
 			layers: false,
 		}
 	}
@@ -53,7 +50,6 @@ impl Toolbar {
 						let selected = match tool {
 							Tool::Layers => self.layers,
 							Tool::Brush | Tool::BoxSelect => mode == Some(tool),
-							Tool::Edit => self.active == Some(tool),
 						};
 						let (rect, response, tint) = panel::item(
 							ui,
@@ -64,11 +60,7 @@ impl Toolbar {
 						if response.clicked() {
 							match tool {
 								Tool::Layers => self.layers = !selected,
-								Tool::Brush | Tool::BoxSelect => {
-									self.active = Some(Tool::Edit);
-									toggled = Some(tool);
-								}
-								Tool::Edit => self.active = (!selected).then_some(tool),
+								Tool::Brush | Tool::BoxSelect => toggled = Some(tool),
 							}
 						}
 
