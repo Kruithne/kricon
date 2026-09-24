@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Stroke, Vec2, 
 const VERTEX_SIZE: f32 = 6.0;
 const VERTEX_HIT_RADIUS: f32 = 8.0;
 const EDGE_WIDTH: f32 = 1.5;
-const SELECTED_COLOR: Color32 = Color32::WHITE;
+pub const SELECTED_COLOR: Color32 = Color32::WHITE;
 const MENU: [(MenuAction, &str, &str); 1] = [(MenuAction::AddVertex, "Add Vertex", icon::BORING)];
 
 #[derive(Clone, Copy)]
@@ -101,6 +101,29 @@ impl EditMode {
 					mesh.vertices[index] = pos;
 				}
 			}
+		}
+	}
+
+	pub fn selection(&self) -> &[usize] {
+		&self.selection
+	}
+
+	pub fn select_layer(&mut self, mesh: &mut Mesh, layer: u32, shift: bool) {
+		self.cancel(mesh);
+		self.operation = Operation::Idle;
+
+		let deselect = shift
+			&& self
+				.selection
+				.iter()
+				.any(|&vertex| mesh.layer(vertex) == layer);
+		if !shift {
+			self.selection.clear();
+		}
+
+		self.selection.retain(|&vertex| mesh.layer(vertex) != layer);
+		if !deselect {
+			self.selection.extend(mesh.layer_vertices(layer));
 		}
 	}
 
@@ -260,9 +283,7 @@ impl EditMode {
 
 		let sources = std::mem::take(&mut self.selection);
 		for &source in &sources {
-			let vertex = mesh.add_vertex(mesh.vertices[source]);
-			mesh.add_edge(source, vertex);
-			self.selection.push(vertex);
+			self.selection.push(mesh.extrude_vertex(source));
 		}
 
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));

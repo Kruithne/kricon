@@ -2,6 +2,7 @@
 
 mod edit;
 mod icon;
+mod layers;
 mod menu;
 mod mesh;
 mod panel;
@@ -11,6 +12,7 @@ mod view;
 
 use edit::EditMode;
 use eframe::egui;
+use layers::Layers;
 use mesh::Mesh;
 use toolbar::{Tool, Toolbar};
 use view::View;
@@ -29,6 +31,7 @@ struct App {
 	view: View,
 	mesh: Mesh,
 	edit: EditMode,
+	layers: Layers,
 	accent: egui::Color32,
 	face_opacity: f32,
 }
@@ -111,6 +114,15 @@ impl eframe::App for App {
 
 		self.toolbar.show(ui.ctx());
 		self.edit.show_menu(ui.ctx(), &mut self.mesh, &self.view);
+		if self.toolbar.layers {
+			self.layers.show(
+				ui.ctx(),
+				&mut self.mesh,
+				&mut self.edit,
+				self.accent,
+				&mut self.toolbar.layers,
+			);
+		}
 		self.show_accent_picker(ui.ctx());
 		self.show_face_opacity(ui.ctx());
 	}
@@ -130,6 +142,8 @@ fn main() -> eframe::Result {
 		options,
 		Box::new(|cc| {
 			cc.egui_ctx.set_theme(egui::Theme::Dark);
+			cc.egui_ctx
+				.all_styles_mut(|style| style.animation_time = 0.0);
 			Ok(Box::new(App {
 				toolbar: Toolbar::new(),
 				view: View {
@@ -138,6 +152,7 @@ fn main() -> eframe::Result {
 				},
 				mesh: Mesh::default(),
 				edit: EditMode::new(),
+				layers: Layers::new(),
 				accent: DEFAULT_ACCENT_COLOR,
 				face_opacity: DEFAULT_FACE_OPACITY,
 			}))

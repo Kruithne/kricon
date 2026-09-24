@@ -1,15 +1,41 @@
 use eframe::egui::{Pos2, Vec2};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub struct Mesh {
 	pub vertices: Vec<Pos2>,
 	pub edges: Vec<[usize; 2]>,
+	pub layers: Vec<u32>,
+	vertex_layers: Vec<u32>,
 }
 
 impl Mesh {
 	pub fn add_vertex(&mut self, pos: Pos2) -> usize {
+		let layer = self.new_layer();
+		self.layers.insert(0, layer);
+		self.vertex_layers.push(layer);
 		self.vertices.push(pos);
 		self.vertices.len() - 1
+	}
+
+	pub fn extrude_vertex(&mut self, source: usize) -> usize {
+		self.vertices.push(self.vertices[source]);
+		self.vertex_layers.push(self.vertex_layers[source]);
+		let vertex = self.vertices.len() - 1;
+		self.add_edge(source, vertex);
+		vertex
+	}
+
+	pub fn layer(&self, vertex: usize) -> u32 {
+		self.vertex_layers[vertex]
+	}
+
+	pub fn layer_vertices(&self, layer: u32) -> impl Iterator<Item = usize> {
+		self.vertex_layers
+			.iter()
+			.enumerate()
+			.filter(move |&(_, &id)| id == layer)
+			.map(|(vertex, _)| vertex)
 	}
 
 	pub fn add_edge(&mut self, a: usize, b: usize) {
@@ -23,6 +49,7 @@ impl Mesh {
 		}
 
 		self.edges.push([a, b]);
+		self.sync_layers();
 	}
 
 	pub fn nearest_vertex(&self, pos: Pos2, radius: f32) -> Option<usize> {
@@ -40,6 +67,7 @@ impl Mesh {
 		for index in indices.into_iter().rev() {
 			self.remove_vertex(index);
 		}
+		self.sync_layers();
 	}
 
 	pub fn triangles(&self) -> Vec<[usize; 3]> {
@@ -47,11 +75,100 @@ impl Mesh {
 		for face in self.faces() {
 			self.triangulate(face, &mut triangles);
 		}
+
+		let ranks = self.ranks();
+		triangles.sort_by_key(|&[a, _, _]| std::cmp::Reverse(ranks[&self.vertex_layers[a]]));
 		triangles
+	}
+
+	fn ranks(&self) -> HashMap<u32, usize> {
+		self.layers
+			.iter()
+			.enumerate()
+			.map(|(rank, &layer)| (layer, rank))
+			.collect()
+	}
+
+	fn new_layer(&self) -> u32 {
+		(1..).find(|id| !self.layers.contains(id)).unwrap()
+	}
+
+	fn sync_layers(&mut self) {
+		let (components, count) = self.components();
+		let ranks = self.ranks();
+		let mut sizes: HashMap<u32, usize> = HashMap::new();
+		for &layer in &self.vertex_layers {
+			*sizes.entry(layer).or_default() += 1;
+		}
+
+		let key = |layer: u32| (std::cmp::Reverse(sizes[&layer]), ranks[&layer]);
+		let mut owners: Vec<Option<u32>> = vec![None; count];
+		for (&component, &layer) in components.iter().zip(&self.vertex_layers) {
+			let owner = &mut owners[component];
+			if owner.is_none_or(|current| key(layer) < key(current)) {
+				*owner = Some(layer);
+			}
+		}
+
+		let mut owners: Vec<u32> = owners.into_iter().flatten().collect();
+		let used: HashSet<u32> = owners.iter().copied().collect();
+		self.layers.retain(|layer| used.contains(layer));
+
+		let mut claimed = HashSet::new();
+		for owner in &mut owners {
+			if claimed.insert(*owner) {
+				continue;
+			}
+
+			let layer = self.new_layer();
+			let position = self.layers.iter().position(|&id| id == *owner).unwrap();
+			self.layers.insert(position + 1, layer);
+			*owner = layer;
+		}
+
+		for (layer, &component) in self.vertex_layers.iter_mut().zip(&components) {
+			*layer = owners[component];
+		}
+	}
+
+	fn components(&self) -> (Vec<usize>, usize) {
+		let neighbours = self.neighbours();
+		let mut components = vec![usize::MAX; self.vertices.len()];
+		let mut count = 0;
+
+		for start in 0..components.len() {
+			if components[start] != usize::MAX {
+				continue;
+			}
+
+			components[start] = count;
+			let mut stack = vec![start];
+			while let Some(vertex) = stack.pop() {
+				for &next in &neighbours[vertex] {
+					if components[next] == usize::MAX {
+						components[next] = count;
+						stack.push(next);
+					}
+				}
+			}
+			count += 1;
+		}
+
+		(components, count)
+	}
+
+	fn neighbours(&self) -> Vec<Vec<usize>> {
+		let mut neighbours = vec![Vec::new(); self.vertices.len()];
+		for &[a, b] in &self.edges {
+			neighbours[a].push(b);
+			neighbours[b].push(a);
+		}
+		neighbours
 	}
 
 	fn remove_vertex(&mut self, index: usize) {
 		self.vertices.remove(index);
+		self.vertex_layers.remove(index);
 		self.edges.retain(|edge| !edge.contains(&index));
 
 		for vertex in self.edges.iter_mut().flatten() {
@@ -62,11 +179,7 @@ impl Mesh {
 	}
 
 	fn faces(&self) -> Vec<Vec<usize>> {
-		let mut neighbours = vec![Vec::new(); self.vertices.len()];
-		for &[a, b] in &self.edges {
-			neighbours[a].push(b);
-			neighbours[b].push(a);
-		}
+		let mut neighbours = self.neighbours();
 
 		let mut leaves: Vec<usize> = (0..neighbours.len())
 			.filter(|&vertex| neighbours[vertex].len() == 1)

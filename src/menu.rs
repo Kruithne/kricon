@@ -30,14 +30,17 @@ impl<T: Copy> Menu<T> {
 		egui::Area::new(egui::Id::new("context_menu"))
 			.order(egui::Order::Foreground)
 			.fixed_pos(pos)
-			.fade_in(false)
 			.show(ctx, |ui| {
 				panel::frame().show(ui, |ui| {
 					ui.spacing_mut().item_spacing.y = 2.0;
 
 					for (action, label, icon) in &mut self.items {
-						let (rect, response, color) =
-							panel::item(ui, egui::vec2(ITEM_WIDTH, ITEM_HEIGHT), false);
+						let (rect, response, color) = panel::item(
+							ui,
+							egui::vec2(ITEM_WIDTH, ITEM_HEIGHT),
+							false,
+							egui::Sense::click(),
+						);
 						if response.clicked() {
 							chosen = Some(*action);
 						}

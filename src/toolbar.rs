@@ -2,7 +2,7 @@ use crate::icon::{self, Icon};
 use crate::panel;
 use eframe::egui;
 
-const TOOLS: [Tool; 1] = [Tool::Edit];
+const TOOLS: [Tool; 2] = [Tool::Edit, Tool::Layers];
 const BUTTON_SIZE: f32 = 36.0;
 const ICON_SIZE: f32 = 20.0;
 const MARGIN: f32 = 12.0;
@@ -10,12 +10,13 @@ const MARGIN: f32 = 12.0;
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tool {
 	Edit,
+	Layers,
 }
 
 impl Tool {
-	fn icon(self) -> &'static str {
+	pub fn icon(self) -> &'static str {
 		match self {
-			Tool::Edit => icon::BORING,
+			Tool::Edit | Tool::Layers => icon::BORING,
 		}
 	}
 }
@@ -23,6 +24,7 @@ impl Tool {
 pub struct Toolbar {
 	icons: Vec<Icon>,
 	pub active: Option<Tool>,
+	pub layers: bool,
 }
 
 impl Toolbar {
@@ -30,6 +32,7 @@ impl Toolbar {
 		Self {
 			icons: TOOLS.iter().map(|tool| Icon::new(tool.icon())).collect(),
 			active: None,
+			layers: false,
 		}
 	}
 
@@ -44,11 +47,21 @@ impl Toolbar {
 					ui.spacing_mut().item_spacing.y = 2.0;
 
 					for (tool, icon) in TOOLS.into_iter().zip(&mut self.icons) {
-						let selected = self.active == Some(tool);
-						let (rect, response, tint) =
-							panel::item(ui, egui::Vec2::splat(BUTTON_SIZE), selected);
+						let selected = match tool {
+							Tool::Layers => self.layers,
+							_ => self.active == Some(tool),
+						};
+						let (rect, response, tint) = panel::item(
+							ui,
+							egui::Vec2::splat(BUTTON_SIZE),
+							selected,
+							egui::Sense::click(),
+						);
 						if response.clicked() {
-							self.active = (!selected).then_some(tool);
+							match tool {
+								Tool::Layers => self.layers = !selected,
+								_ => self.active = (!selected).then_some(tool),
+							}
 						}
 
 						let icon_rect = egui::Rect::from_center_size(
