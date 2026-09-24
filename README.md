@@ -10,12 +10,17 @@ kricon is a purpose-built icon editing utility.
 | `R` | Rotates the selected vertices. |
 | `S` | Scales the selected vertices. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
+| `Alt` | Snaps the translated vertices to the grid while held. |
+| `0`-`9` / `-` | Rotates by the typed angle in degrees. A negative angle rotates clockwise. |
 | `Enter` | Confirms the current transform. |
 | `Escape` | Cancels the current transform or closes the open menu. |
 | `E` | Extrudes the selected vertices. |
 | `Shift` + `D` | Duplicates the selected vertices. |
 | `F` | Connects the two selected vertices with an edge. |
 | `V` | Adds a vertex at the cursor. |
+| `Right Click` | Selects the vertex at the cursor, or the vertices of the face at the cursor. |
+| `C` | Toggles brush selection. `Scroll` sets the size, `Left Click` selects and `Middle Click` deselects. |
+| `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
 | `L` | Selects all linked vertices to the currently selected. |
 | `W` | Opens the create menu. |
 | `M` | Opens the merge menu. |
