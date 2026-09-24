@@ -1,11 +1,18 @@
+mod icon;
+mod svg;
+mod toolbar;
+
 use eframe::egui;
+use toolbar::Toolbar;
 
 const ICON_PNG: &[u8] = include_bytes!("../res/kricon.png");
 const GRID_SPACING: f32 = 32.0;
 const BACKGROUND_COLOR: egui::Color32 = egui::Color32::from_rgb(24, 24, 27);
 const GRID_COLOR: egui::Color32 = egui::Color32::from_rgb(44, 44, 48);
 
-struct App;
+struct App {
+	toolbar: Toolbar,
+}
 
 impl eframe::App for App {
 	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -26,6 +33,8 @@ impl eframe::App for App {
 			painter.hline(rect.x_range(), y, stroke);
 			y += GRID_SPACING;
 		}
+
+		self.toolbar.show(ui.ctx());
 	}
 }
 
@@ -43,7 +52,9 @@ fn main() -> eframe::Result {
 		options,
 		Box::new(|cc| {
 			cc.egui_ctx.set_theme(egui::Theme::Dark);
-			Ok(Box::new(App))
+			Ok(Box::new(App {
+				toolbar: Toolbar::new(),
+			}))
 		}),
 	)
 }
