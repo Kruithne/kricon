@@ -84,6 +84,15 @@ impl App {
 		egui::Area::new(egui::Id::new("face_opacity"))
 			.anchor(egui::Align2::RIGHT_BOTTOM, [-MARGIN, -MARGIN])
 			.show(ctx, |ui| {
+				let widgets = &mut ui.visuals_mut().widgets;
+				for state in [
+					&mut widgets.inactive,
+					&mut widgets.hovered,
+					&mut widgets.active,
+				] {
+					state.bg_fill = DEFAULT_ACCENT_COLOR;
+					state.fg_stroke.width = 0.0;
+				}
 				ui.add(egui::Slider::new(&mut self.face_opacity, 0.0..=1.0));
 			});
 	}
