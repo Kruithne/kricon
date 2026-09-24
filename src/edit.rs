@@ -14,10 +14,8 @@ const AXIS_WIDTH: f32 = 1.0;
 const AXIS_X_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
 const AXIS_Y_COLOR: Color32 = Color32::from_rgb(139, 220, 0);
 pub const SELECTED_COLOR: Color32 = Color32::WHITE;
-const QUICK_MENU: [(MenuAction, &str, &str); 2] = [
-	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
-	(MenuAction::SelectLinked, "Select Linked (L)", icon::BORING),
-];
+const CREATE_MENU: [(MenuAction, &str, &str); 1] =
+	[(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING)];
 const MERGE_MENU: [(MenuAction, &str, &str); 4] = [
 	(
 		MenuAction::Merge(MergeTarget::Last),
@@ -44,7 +42,6 @@ const MERGE_MENU: [(MenuAction, &str, &str); 4] = [
 #[derive(Clone, Copy)]
 enum MenuAction {
 	AddVertex,
-	SelectLinked,
 	Merge(MergeTarget),
 }
 
@@ -58,7 +55,7 @@ enum MergeTarget {
 
 #[derive(Clone, Copy)]
 enum MenuKind {
-	Quick,
+	Create,
 	Merge,
 }
 
@@ -131,7 +128,7 @@ impl Transform {
 pub struct EditMode {
 	selection: Vec<usize>,
 	operation: Operation,
-	quick_menu: Menu<MenuAction>,
+	create_menu: Menu<MenuAction>,
 	merge_menu: Menu<MenuAction>,
 }
 
@@ -140,7 +137,7 @@ impl EditMode {
 		Self {
 			selection: Vec::new(),
 			operation: Operation::Idle,
-			quick_menu: Menu::new("Quick Menu", icon::BORING, &QUICK_MENU),
+			create_menu: Menu::new("Create", icon::BORING, &CREATE_MENU),
 			merge_menu: Menu::new("Merge", icon::BORING, &MERGE_MENU),
 		}
 	}
@@ -205,7 +202,7 @@ impl EditMode {
 		};
 
 		let menu = match kind {
-			MenuKind::Quick => &mut self.quick_menu,
+			MenuKind::Create => &mut self.create_menu,
 			MenuKind::Merge => &mut self.merge_menu,
 		};
 		let Some(action) = menu.show(ctx, view.to_screen(pos), accent) else {
@@ -215,7 +212,6 @@ impl EditMode {
 		self.operation = Operation::Idle;
 		match action {
 			MenuAction::AddVertex => self.selection = vec![mesh.add_vertex(pos)],
-			MenuAction::SelectLinked => self.select_linked(mesh),
 			MenuAction::Merge(target) => self.merge(mesh, target, pos),
 		}
 	}
@@ -308,7 +304,7 @@ impl EditMode {
 				} else if key(Key::W) {
 					self.operation = Operation::Menu {
 						pos: cursor,
-						kind: MenuKind::Quick,
+						kind: MenuKind::Create,
 					};
 				} else if key(Key::M) {
 					self.operation = Operation::Menu {
