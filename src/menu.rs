@@ -12,7 +12,7 @@ pub struct Menu<T> {
 impl<T: Copy> Menu<T> {
 	pub fn new(title: &'static str, icon: &str, items: &[(T, &'static str, &'static str)]) -> Self {
 		Self {
-			header: Header::new(title, icon, false),
+			header: Header::new(title, icon),
 			items: items
 				.iter()
 				.map(|&(action, label, icon)| (action, label, Icon::new(icon)))

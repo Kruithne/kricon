@@ -1,7 +1,6 @@
 use crate::icon;
 use crate::menu::Menu;
 use crate::mesh::Mesh;
-use crate::toolbar::Tool;
 use crate::view::View;
 use eframe::egui::{
 	self, Color32, Event, Key, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2, emath::Rot2,
@@ -235,28 +234,6 @@ impl EditMode {
 				..
 			}) | Operation::Brush
 		)
-	}
-
-	pub fn tool(&self) -> Option<Tool> {
-		match self.operation {
-			Operation::Brush => Some(Tool::Brush),
-			Operation::BoxSelect { .. } => Some(Tool::BoxSelect),
-			_ => None,
-		}
-	}
-
-	pub fn toggle_tool(&mut self, mesh: &mut Mesh, tool: Tool) {
-		let active = self.tool() == Some(tool);
-		self.cancel(mesh);
-		if active {
-			return;
-		}
-
-		self.operation = match tool {
-			Tool::Brush => Operation::Brush,
-			Tool::BoxSelect => Operation::BoxSelect { start: None },
-			_ => Operation::Idle,
-		};
 	}
 
 	pub fn selection(&self) -> &[usize] {

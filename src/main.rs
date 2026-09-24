@@ -7,14 +7,12 @@ mod menu;
 mod mesh;
 mod panel;
 mod svg;
-mod toolbar;
 mod view;
 
 use edit::EditMode;
 use eframe::egui;
 use layers::Layers;
 use mesh::Mesh;
-use toolbar::Toolbar;
 use view::View;
 
 const ICON_PNG: &[u8] = include_bytes!("../res/kricon.png");
@@ -27,7 +25,6 @@ const DEFAULT_FACE_OPACITY: f32 = 0.1;
 const MARGIN: f32 = 12.0;
 
 struct App {
-	toolbar: Toolbar,
 	view: View,
 	mesh: Mesh,
 	edit: EditMode,
@@ -115,20 +112,10 @@ impl eframe::App for App {
 		self.draw_faces(painter);
 		self.edit.draw(&self.mesh, &self.view, painter, self.accent);
 
-		if let Some(tool) = self.toolbar.show(ui.ctx(), self.edit.tool()) {
-			self.edit.toggle_tool(&mut self.mesh, tool);
-		}
 		self.edit
 			.show_menu(ui.ctx(), &mut self.mesh, &self.view, self.accent);
-		if self.toolbar.layers {
-			self.layers.show(
-				ui.ctx(),
-				&mut self.mesh,
-				&mut self.edit,
-				self.accent,
-				&mut self.toolbar.layers,
-			);
-		}
+		self.layers
+			.show(ui.ctx(), &mut self.mesh, &mut self.edit, self.accent);
 		self.show_accent_picker(ui.ctx());
 		self.show_face_opacity(ui.ctx());
 	}
@@ -177,7 +164,6 @@ fn main() -> eframe::Result {
 			cc.egui_ctx
 				.all_styles_mut(|style| style.animation_time = 0.0);
 			Ok(Box::new(App {
-				toolbar: Toolbar::new(),
 				view: View {
 					offset: egui::Vec2::ZERO,
 					scale: GRID_SPACING,

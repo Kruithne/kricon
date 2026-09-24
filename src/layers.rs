@@ -1,7 +1,7 @@
 use crate::edit::{self, EditMode};
+use crate::icon;
 use crate::mesh::Mesh;
 use crate::panel::{self, Header};
-use crate::toolbar::Tool;
 use eframe::egui;
 use std::collections::HashMap;
 
@@ -18,7 +18,7 @@ pub struct Layers {
 impl Layers {
 	pub fn new() -> Self {
 		Self {
-			header: Header::new("Layers", Tool::Layers.icon(), true),
+			header: Header::new("Layers", icon::BORING),
 		}
 	}
 
@@ -28,7 +28,6 @@ impl Layers {
 		mesh: &mut Mesh,
 		edit: &mut EditMode,
 		accent: egui::Color32,
-		open: &mut bool,
 	) {
 		let mut sizes: HashMap<u32, usize> = HashMap::new();
 		for vertex in 0..mesh.vertices.len() {
@@ -45,17 +44,14 @@ impl Layers {
 		egui::Window::new("Layers")
 			.frame(panel::bordered_frame(accent))
 			.title_bar(false)
-			.pivot(egui::Align2::RIGHT_TOP)
-			.default_pos(ctx.content_rect().right_top() + egui::vec2(-MARGIN, MARGIN))
+			.default_pos(ctx.content_rect().left_top() + egui::vec2(MARGIN, MARGIN))
 			.resizable(false)
 			.collapsible(false)
 			.show(ctx, |ui| {
 				ui.spacing_mut().item_spacing.y = 2.0;
 				ui.set_width(PANEL_WIDTH);
 
-				if self.header.show(ui, PANEL_WIDTH, accent) {
-					*open = false;
-				}
+				self.header.show(ui, PANEL_WIDTH, accent);
 
 				if mesh.layers.is_empty() {
 					let (rect, _) = ui.allocate_exact_size(
