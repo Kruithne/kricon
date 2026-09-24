@@ -2,12 +2,17 @@ use crate::icon;
 use crate::menu::Menu;
 use crate::mesh::Mesh;
 use crate::view::View;
-use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Stroke, Vec2, emath::Rot2};
+use eframe::egui::{
+	self, Color32, Key, PointerButton, Pos2, Rect, Stroke, Vec2, emath::Rot2, pos2,
+};
 
 const VERTEX_SIZE: f32 = 6.0;
 const VERTEX_HIT_RADIUS: f32 = 8.0;
 const LINK_PICK_RADIUS: f32 = 32.0;
 const EDGE_WIDTH: f32 = 1.5;
+const AXIS_WIDTH: f32 = 1.0;
+const AXIS_X_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
+const AXIS_Y_COLOR: Color32 = Color32::from_rgb(139, 220, 0);
 pub const SELECTED_COLOR: Color32 = Color32::WHITE;
 const MENU: [(MenuAction, &str, &str); 2] = [
 	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
@@ -33,10 +38,17 @@ enum Operation {
 	},
 }
 
+#[derive(PartialEq)]
 enum TransformKind {
 	Translate,
 	Rotate,
 	Scale,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Axis {
+	X,
+	Y,
 }
 
 struct Transform {
@@ -46,26 +58,35 @@ struct Transform {
 	original: Vec<Pos2>,
 	drag: bool,
 	created_from: Option<Vec<usize>>,
+	axis: Option<Axis>,
 }
 
 impl Transform {
 	fn apply(&self, pos: Pos2, cursor: Pos2) -> Pos2 {
+		let offset = pos - self.pivot;
 		let start = self.anchor - self.pivot;
 		let current = cursor - self.pivot;
-		match self.kind {
-			TransformKind::Translate => pos + (cursor - self.anchor),
-			TransformKind::Rotate => {
-				self.pivot + Rot2::from_angle(current.angle() - start.angle()) * (pos - self.pivot)
+		let angle = current.angle() - start.angle();
+		let moved = match (&self.kind, self.axis) {
+			(TransformKind::Translate, _) => offset + (cursor - self.anchor),
+			(TransformKind::Rotate, None) => Rot2::from_angle(angle) * offset,
+			(TransformKind::Rotate, Some(_)) => offset * angle.cos(),
+			(TransformKind::Scale, _) if start.length() > f32::EPSILON => {
+				offset * (current.length() / start.length())
 			}
-			TransformKind::Scale => {
-				let factor = if start.length() > f32::EPSILON {
-					current.length() / start.length()
-				} else {
-					1.0
-				};
-				self.pivot + (pos - self.pivot) * factor
-			}
-		}
+			(TransformKind::Scale, _) => offset,
+		};
+
+		let free = match (self.kind == TransformKind::Rotate, self.axis) {
+			(_, None) => Vec2::splat(1.0),
+			(false, Some(Axis::X)) | (true, Some(Axis::Y)) => Vec2::X,
+			(false, Some(Axis::Y)) | (true, Some(Axis::X)) => Vec2::Y,
+		};
+		self.pivot + offset + (moved - offset) * free
+	}
+
+	fn toggle_axis(&mut self, axis: Axis) {
+		self.axis = (self.axis != Some(axis)).then_some(axis);
 	}
 }
 
@@ -173,6 +194,27 @@ impl EditMode {
 			);
 		}
 
+		if let Operation::Transform(Transform {
+			pivot,
+			axis: Some(axis),
+			..
+		}) = self.operation
+		{
+			let pivot = view.to_screen(pivot);
+			let clip = painter.clip_rect();
+			let (color, points) = match axis {
+				Axis::X => (
+					AXIS_X_COLOR,
+					[pos2(clip.left(), pivot.y), pos2(clip.right(), pivot.y)],
+				),
+				Axis::Y => (
+					AXIS_Y_COLOR,
+					[pos2(pivot.x, clip.top()), pos2(pivot.x, clip.bottom())],
+				),
+			};
+			painter.line_segment(points, Stroke::new(AXIS_WIDTH, color));
+		}
+
 		for (index, &vertex) in mesh.vertices.iter().enumerate() {
 			let rect = Rect::from_center_size(view.to_screen(vertex), Vec2::splat(VERTEX_SIZE));
 			painter.rect_filled(rect, 0.0, color(selected[index]));
@@ -194,7 +236,7 @@ impl EditMode {
 		let key = |key: Key| keyboard && input.key_pressed(key);
 		let pressed = |button: PointerButton| input.pointer.button_pressed(button);
 
-		match &self.operation {
+		match &mut self.operation {
 			Operation::Idle => {
 				if key(Key::G) {
 					self.begin_transform(mesh, TransformKind::Translate, cursor, false, None);
@@ -242,6 +284,12 @@ impl EditMode {
 				}
 			}
 			Operation::Transform(transform) => {
+				if key(Key::X) {
+					transform.toggle_axis(Axis::X);
+				} else if key(Key::Y) {
+					transform.toggle_axis(Axis::Y);
+				}
+
 				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
 					mesh.vertices[index] = transform.apply(pos, cursor);
 				}
@@ -358,6 +406,7 @@ impl EditMode {
 			original,
 			drag,
 			created_from,
+			axis: None,
 		});
 	}
 }
