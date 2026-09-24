@@ -18,7 +18,7 @@ impl View {
 		(pos - self.offset) / self.scale
 	}
 
-	pub fn update(&mut self, response: &egui::Response) {
+	pub fn update(&mut self, response: &egui::Response, zoom: bool) {
 		if !response.hovered() {
 			return;
 		}
@@ -35,7 +35,8 @@ impl View {
 			self.offset += response.drag_delta();
 		}
 
-		if let Some(cursor) = cursor
+		if zoom
+			&& let Some(cursor) = cursor
 			&& scroll != 0.0
 		{
 			let anchor = self.to_world(cursor);

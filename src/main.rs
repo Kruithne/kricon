@@ -105,7 +105,7 @@ impl eframe::App for App {
 			egui::Sense::click_and_drag(),
 		);
 
-		self.view.update(&response);
+		self.view.update(&response, !self.edit.captures_scroll());
 
 		if self.toolbar.active == Some(Tool::Edit) {
 			self.edit.update(&mut self.mesh, &self.view, &response);

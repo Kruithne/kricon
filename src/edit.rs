@@ -3,8 +3,9 @@ use crate::menu::Menu;
 use crate::mesh::Mesh;
 use crate::view::View;
 use eframe::egui::{
-	self, Color32, Key, PointerButton, Pos2, Rect, Stroke, Vec2, emath::Rot2, pos2,
+	self, Color32, Event, Key, PointerButton, Pos2, Rect, Stroke, Vec2, emath::Rot2, pos2, vec2,
 };
+use std::f32::consts::TAU;
 
 const VERTEX_SIZE: f32 = 6.0;
 const VERTEX_HIT_RADIUS: f32 = 8.0;
@@ -14,8 +15,16 @@ const AXIS_WIDTH: f32 = 1.0;
 const AXIS_X_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
 const AXIS_Y_COLOR: Color32 = Color32::from_rgb(139, 220, 0);
 pub const SELECTED_COLOR: Color32 = Color32::WHITE;
-const CREATE_MENU: [(MenuAction, &str, &str); 1] =
-	[(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING)];
+const RECT_SIZE: f32 = 2.0;
+const CIRCLE_RADIUS: f32 = 1.0;
+const CIRCLE_SEGMENTS: usize = 16;
+const MIN_CIRCLE_SEGMENTS: usize = 3;
+const MAX_CIRCLE_SEGMENTS: usize = 128;
+const CREATE_MENU: [(MenuAction, &str, &str); 3] = [
+	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
+	(MenuAction::AddRect, "Add Rect", icon::BORING),
+	(MenuAction::AddCircle, "Add Circle", icon::BORING),
+];
 const MERGE_MENU: [(MenuAction, &str, &str); 4] = [
 	(
 		MenuAction::Merge(MergeTarget::Last),
@@ -42,6 +51,8 @@ const MERGE_MENU: [(MenuAction, &str, &str); 4] = [
 #[derive(Clone, Copy)]
 enum MenuAction {
 	AddVertex,
+	AddRect,
+	AddCircle,
 	Merge(MergeTarget),
 }
 
@@ -94,6 +105,7 @@ struct Transform {
 	drag: bool,
 	created_from: Option<Vec<usize>>,
 	axis: Option<Axis>,
+	segments: Option<usize>,
 }
 
 impl Transform {
@@ -167,6 +179,16 @@ impl EditMode {
 		}
 	}
 
+	pub fn captures_scroll(&self) -> bool {
+		matches!(
+			self.operation,
+			Operation::Transform(Transform {
+				segments: Some(_),
+				..
+			})
+		)
+	}
+
 	pub fn selection(&self) -> &[usize] {
 		&self.selection
 	}
@@ -212,6 +234,13 @@ impl EditMode {
 		self.operation = Operation::Idle;
 		match action {
 			MenuAction::AddVertex => self.selection = vec![mesh.add_vertex(pos)],
+			MenuAction::AddRect => self.add_primitive(mesh, &rect_points(pos), pos, None),
+			MenuAction::AddCircle => self.add_primitive(
+				mesh,
+				&circle_points(pos, CIRCLE_SEGMENTS),
+				pos,
+				Some(CIRCLE_SEGMENTS),
+			),
 			MenuAction::Merge(target) => self.merge(mesh, target, pos),
 		}
 	}
@@ -339,6 +368,31 @@ impl EditMode {
 					transform.toggle_axis(Axis::Y);
 				}
 
+				let steps: isize = input
+					.events
+					.iter()
+					.filter_map(|event| match event {
+						Event::MouseWheel { delta, .. } if delta.y != 0.0 => {
+							Some(delta.y.signum() as isize)
+						}
+						_ => None,
+					})
+					.sum();
+				if let Some(segments) = &mut transform.segments
+					&& steps != 0
+				{
+					*segments = segments
+						.saturating_add_signed(steps)
+						.clamp(MIN_CIRCLE_SEGMENTS, MAX_CIRCLE_SEGMENTS);
+					mesh.remove_vertices(std::mem::take(&mut self.selection));
+					self.selection = mesh.add_loop(&circle_points(transform.pivot, *segments));
+					transform.original = self
+						.selection
+						.iter()
+						.map(|&index| mesh.vertices[index])
+						.collect();
+				}
+
 				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
 					mesh.vertices[index] = transform.apply(pos, cursor);
 				}
@@ -418,6 +472,20 @@ impl EditMode {
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
 	}
 
+	fn add_primitive(
+		&mut self,
+		mesh: &mut Mesh,
+		points: &[Pos2],
+		cursor: Pos2,
+		segments: Option<usize>,
+	) {
+		let sources = std::mem::replace(&mut self.selection, mesh.add_loop(points));
+		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
+		if let Operation::Transform(transform) = &mut self.operation {
+			transform.segments = segments;
+		}
+	}
+
 	fn merge(&mut self, mesh: &mut Mesh, target: MergeTarget, cursor: Pos2) {
 		let (Some(&first), Some(&last)) = (self.selection.first(), self.selection.last()) else {
 			return;
@@ -458,6 +526,7 @@ impl EditMode {
 			drag,
 			created_from,
 			axis: None,
+			segments: None,
 		});
 	}
 }
@@ -467,4 +536,23 @@ fn center(mesh: &Mesh, vertices: &[usize]) -> Pos2 {
 		sum + mesh.vertices[index].to_vec2()
 	});
 	(sum / vertices.len() as f32).to_pos2()
+}
+
+fn rect_points(center: Pos2) -> [Pos2; 4] {
+	let half = RECT_SIZE / 2.0;
+	[
+		center + vec2(-half, -half),
+		center + vec2(half, -half),
+		center + vec2(half, half),
+		center + vec2(-half, half),
+	]
+}
+
+fn circle_points(center: Pos2, segments: usize) -> Vec<Pos2> {
+	(0..segments)
+		.map(|index| {
+			let angle = TAU * index as f32 / segments as f32;
+			center + CIRCLE_RADIUS * vec2(angle.cos(), angle.sin())
+		})
+		.collect()
 }

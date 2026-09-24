@@ -18,6 +18,20 @@ impl Mesh {
 		self.vertices.len() - 1
 	}
 
+	pub fn add_loop(&mut self, points: &[Pos2]) -> Vec<usize> {
+		let layer = self.new_layer();
+		self.layers.insert(0, layer);
+
+		let offset = self.vertices.len();
+		for (index, &pos) in points.iter().enumerate() {
+			self.vertices.push(pos);
+			self.vertex_layers.push(layer);
+			self.edges
+				.push([offset + index, offset + (index + 1) % points.len()]);
+		}
+		(offset..self.vertices.len()).collect()
+	}
+
 	pub fn extrude(&mut self, vertices: &[usize]) -> Vec<usize> {
 		let copies = self.copy_vertices(vertices);
 		for (&source, &copy) in vertices.iter().zip(&copies) {
