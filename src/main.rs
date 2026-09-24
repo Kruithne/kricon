@@ -84,16 +84,14 @@ impl App {
 		egui::Area::new(egui::Id::new("face_opacity"))
 			.anchor(egui::Align2::RIGHT_BOTTOM, [-MARGIN, -MARGIN])
 			.show(ctx, |ui| {
-				let widgets = &mut ui.visuals_mut().widgets;
-				for state in [
-					&mut widgets.inactive,
-					&mut widgets.hovered,
-					&mut widgets.active,
-				] {
-					state.bg_fill = DEFAULT_ACCENT_COLOR;
-					state.fg_stroke.width = 0.0;
-				}
-				ui.add(egui::Slider::new(&mut self.face_opacity, 0.0..=1.0));
+				ui.horizontal(|ui| {
+					opacity_slider(ui, &mut self.face_opacity);
+					ui.add(
+						egui::DragValue::new(&mut self.face_opacity)
+							.range(0.0..=1.0)
+							.speed(1.0 / ui.spacing().slider_width),
+					);
+				});
 			});
 	}
 }
@@ -136,6 +134,32 @@ impl eframe::App for App {
 		self.show_accent_picker(ui.ctx());
 		self.show_face_opacity(ui.ctx());
 	}
+}
+
+fn opacity_slider(ui: &mut egui::Ui, value: &mut f32) {
+	let size = egui::vec2(ui.spacing().slider_width, ui.spacing().interact_size.y);
+	let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+	let radius = rect.height() / 2.5;
+	let range = rect.x_range().shrink(radius);
+	if let Some(pointer) = response.interact_pointer_pos() {
+		*value = egui::remap_clamp(pointer.x, range.min..=range.max, 0.0..=1.0);
+	}
+
+	let rail = egui::Rect::from_center_size(
+		rect.center(),
+		egui::vec2(rect.width(), ui.spacing().slider_rail_height),
+	);
+	let widgets = &ui.visuals().widgets;
+	ui.painter().rect_filled(
+		rail,
+		widgets.inactive.corner_radius,
+		widgets.inactive.bg_fill,
+	);
+
+	let knob = egui::pos2(egui::lerp(range.min..=range.max, *value), rect.center().y);
+	let expansion = ui.style().interact(&response).expansion;
+	ui.painter()
+		.circle_filled(knob, radius + expansion, DEFAULT_ACCENT_COLOR);
 }
 
 fn main() -> eframe::Result {
