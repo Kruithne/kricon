@@ -1,3 +1,4 @@
+use crate::history::Splice;
 use eframe::egui::{Pos2, Rect, Vec2, vec2};
 use std::collections::{HashMap, HashSet};
 
@@ -12,7 +13,43 @@ pub struct Mesh {
 	holes: Vec<Vec<usize>>,
 }
 
+pub struct Change {
+	vertices: Splice<Pos2>,
+	edges: Splice<[usize; 2]>,
+	layers: Splice<u32>,
+	vertex_layers: Splice<u32>,
+	holes: Splice<Vec<usize>>,
+}
+
+impl Change {
+	pub fn is_empty(&self) -> bool {
+		self.vertices.is_empty()
+			&& self.edges.is_empty()
+			&& self.layers.is_empty()
+			&& self.vertex_layers.is_empty()
+			&& self.holes.is_empty()
+	}
+}
+
 impl Mesh {
+	pub fn diff(&self, after: &Mesh) -> Change {
+		Change {
+			vertices: Splice::new(&self.vertices, &after.vertices),
+			edges: Splice::new(&self.edges, &after.edges),
+			layers: Splice::new(&self.layers, &after.layers),
+			vertex_layers: Splice::new(&self.vertex_layers, &after.vertex_layers),
+			holes: Splice::new(&self.holes, &after.holes),
+		}
+	}
+
+	pub fn apply(&mut self, change: &Change, forward: bool) {
+		change.vertices.apply(&mut self.vertices, forward);
+		change.edges.apply(&mut self.edges, forward);
+		change.layers.apply(&mut self.layers, forward);
+		change.vertex_layers.apply(&mut self.vertex_layers, forward);
+		change.holes.apply(&mut self.holes, forward);
+	}
+
 	pub fn add_vertex(&mut self, pos: Pos2) -> usize {
 		let layer = self.new_layer();
 		self.layers.insert(0, layer);
@@ -123,6 +160,12 @@ impl Mesh {
 		let copies = self.copy_vertices(vertices);
 		self.sync_layers();
 		copies
+	}
+
+	pub fn move_layer(&mut self, from: usize, target: usize) {
+		let layer = self.layers.remove(from);
+		let to = if target > from { target - 1 } else { target };
+		self.layers.insert(to, layer);
 	}
 
 	pub fn layer(&self, vertex: usize) -> u32 {

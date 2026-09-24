@@ -120,9 +120,7 @@ impl Layers {
 			});
 
 		if let Some((from, target)) = moved {
-			let layer = mesh.layers.remove(from);
-			let to = if target > from { target - 1 } else { target };
-			mesh.layers.insert(to, layer);
+			edit.move_layer(mesh, from, target);
 		}
 
 		if let Some(layer) = clicked {

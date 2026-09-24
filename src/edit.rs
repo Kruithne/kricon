@@ -1,3 +1,4 @@
+use crate::history::History;
 use crate::icon;
 use crate::menu::Menu;
 use crate::mesh::Mesh;
@@ -116,7 +117,7 @@ struct Transform {
 	pivot: Pos2,
 	original: Vec<Pos2>,
 	drag: bool,
-	created_from: Option<(Vec<usize>, Mesh)>,
+	before: Vec<usize>,
 	axis: Option<Axis>,
 	primitive: bool,
 	segments: Option<usize>,
@@ -192,6 +193,7 @@ pub struct EditMode {
 	create_menu: Menu<MenuAction>,
 	merge_menu: Menu<MenuAction>,
 	brush_radius: f32,
+	history: History,
 }
 
 impl EditMode {
@@ -202,6 +204,7 @@ impl EditMode {
 			create_menu: Menu::new("Create", icon::BORING, &CREATE_MENU),
 			merge_menu: Menu::new("Merge", icon::BORING, &MERGE_MENU),
 			brush_radius: BRUSH_RADIUS,
+			history: History::default(),
 		}
 	}
 
@@ -218,17 +221,13 @@ impl EditMode {
 			return;
 		};
 
-		match transform.created_from {
-			Some((sources, snapshot)) => {
-				*mesh = snapshot;
-				self.selection = sources;
-			}
-			None => {
-				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
-					mesh.vertices[index] = pos;
-				}
-			}
-		}
+		self.history.revert(mesh);
+		self.selection = transform.before;
+	}
+
+	pub fn move_layer(&mut self, mesh: &mut Mesh, from: usize, target: usize) {
+		self.cancel(mesh);
+		self.record(mesh, |_, mesh| mesh.move_layer(from, target));
 	}
 
 	pub fn captures_scroll(&self) -> bool {
@@ -289,7 +288,11 @@ impl EditMode {
 
 		self.operation = Operation::Idle;
 		match action {
-			MenuAction::AddVertex => self.selection = vec![mesh.add_vertex(pos)],
+			MenuAction::AddVertex => {
+				self.record(mesh, |edit, mesh| {
+					edit.selection = vec![mesh.add_vertex(pos)]
+				});
+			}
 			MenuAction::AddRect => self.add_primitive(mesh, &rect_points(pos), pos, None),
 			MenuAction::AddCircle => self.add_primitive(
 				mesh,
@@ -297,7 +300,9 @@ impl EditMode {
 				pos,
 				Some(CIRCLE_SEGMENTS),
 			),
-			MenuAction::Merge(target) => self.merge(mesh, target, pos),
+			MenuAction::Merge(target) => {
+				self.record(mesh, |edit, mesh| edit.merge(mesh, target, pos));
+			}
 		}
 	}
 
@@ -381,18 +386,42 @@ impl EditMode {
 
 		match &mut self.operation {
 			Operation::Idle => {
-				if key(Key::G) {
-					self.begin_transform(mesh, TransformKind::Translate, cursor, false, None);
+				if key(Key::Z) && input.modifiers.ctrl {
+					self.history.undo(mesh, &mut self.selection);
+				} else if key(Key::R) && input.modifiers.ctrl {
+					self.history.redo(mesh, &mut self.selection);
+				} else if key(Key::G) {
+					self.begin_transform(
+						mesh,
+						TransformKind::Translate,
+						cursor,
+						false,
+						self.selection.clone(),
+					);
 				} else if key(Key::R) {
-					self.begin_transform(mesh, TransformKind::Rotate, cursor, false, None);
+					self.begin_transform(
+						mesh,
+						TransformKind::Rotate,
+						cursor,
+						false,
+						self.selection.clone(),
+					);
 				} else if key(Key::S) && (input.modifiers.shift || input.modifiers.ctrl) {
-					let midpoints = mesh.subdivide(&self.selection, input.modifiers.ctrl);
-					self.extend_selection(midpoints);
+					self.record(mesh, |edit, mesh| {
+						let midpoints = mesh.subdivide(&edit.selection, input.modifiers.ctrl);
+						edit.extend_selection(midpoints);
+					});
 				} else if key(Key::S) {
-					self.begin_transform(mesh, TransformKind::Scale, cursor, false, None);
+					self.begin_transform(
+						mesh,
+						TransformKind::Scale,
+						cursor,
+						false,
+						self.selection.clone(),
+					);
 				} else if key(Key::F) {
 					if let [a, b] = self.selection[..] {
-						mesh.add_edge(a, b);
+						self.record(mesh, |_, mesh| mesh.add_edge(a, b));
 					}
 				} else if key(Key::D) && input.modifiers.shift {
 					self.create(mesh, cursor, Mesh::duplicate);
@@ -401,7 +430,9 @@ impl EditMode {
 				} else if key(Key::I) {
 					self.inset(mesh, cursor);
 				} else if key(Key::V) {
-					self.selection = vec![mesh.add_vertex(cursor)];
+					self.record(mesh, |edit, mesh| {
+						edit.selection = vec![mesh.add_vertex(cursor)]
+					});
 				} else if key(Key::L) {
 					if self.selection.is_empty() {
 						let radius = LINK_PICK_RADIUS / view.scale;
@@ -419,15 +450,19 @@ impl EditMode {
 						kind: MenuKind::Merge,
 					};
 				} else if key(Key::X) {
-					mesh.dissolve(std::mem::take(&mut self.selection));
+					self.record(mesh, |edit, mesh| {
+						mesh.dissolve(std::mem::take(&mut edit.selection));
+					});
 				} else if key(Key::P) {
-					mesh.toggle_hole(&self.selection);
+					self.record(mesh, |edit, mesh| mesh.toggle_hole(&edit.selection));
 				} else if key(Key::C) {
 					self.operation = Operation::Brush;
 				} else if key(Key::B) {
 					self.operation = Operation::BoxSelect { start: None };
 				} else if key(Key::Delete) {
-					mesh.remove_vertices(std::mem::take(&mut self.selection));
+					self.record(mesh, |edit, mesh| {
+						mesh.remove_vertices(std::mem::take(&mut edit.selection));
+					});
 				} else if hovered && pressed(PointerButton::Secondary) {
 					let radius = VERTEX_HIT_RADIUS / view.scale;
 					let hit = mesh.nearest_vertex(cursor, radius);
@@ -451,7 +486,13 @@ impl EditMode {
 						.pointer
 						.press_origin()
 						.map_or(cursor, |pos| view.to_world(pos));
-					self.begin_transform(mesh, TransformKind::Translate, anchor, true, None);
+					self.begin_transform(
+						mesh,
+						TransformKind::Translate,
+						anchor,
+						true,
+						self.selection.clone(),
+					);
 				}
 			}
 			Operation::Transform(transform) => {
@@ -516,7 +557,7 @@ impl EditMode {
 				if cancel {
 					self.cancel(mesh);
 				} else if confirm {
-					self.operation = Operation::Idle;
+					self.confirm(mesh);
 				}
 			}
 			Operation::Brush => {
@@ -556,6 +597,20 @@ impl EditMode {
 				}
 			}
 		}
+	}
+
+	fn confirm(&mut self, mesh: &Mesh) {
+		let Operation::Transform(transform) = std::mem::take(&mut self.operation) else {
+			return;
+		};
+
+		self.history.commit(mesh, transform.before, &self.selection);
+	}
+
+	fn record(&mut self, mesh: &mut Mesh, action: impl FnOnce(&mut Self, &mut Mesh)) {
+		let before = self.selection.clone();
+		action(self, mesh);
+		self.history.commit(mesh, before, &self.selection);
 	}
 
 	fn select(&mut self, hit: Option<usize>, shift: bool) {
@@ -616,20 +671,12 @@ impl EditMode {
 			return;
 		}
 
-		let snapshot = mesh.clone();
 		let sources = std::mem::take(&mut self.selection);
 		self.selection = create(mesh, &sources);
-		self.begin_transform(
-			mesh,
-			TransformKind::Translate,
-			cursor,
-			false,
-			Some((sources, snapshot)),
-		);
+		self.begin_transform(mesh, TransformKind::Translate, cursor, false, sources);
 	}
 
 	fn inset(&mut self, mesh: &mut Mesh, cursor: Pos2) {
-		let snapshot = mesh.clone();
 		let (inner, directions) = mesh.inset(&self.selection);
 		if inner.is_empty() {
 			return;
@@ -641,7 +688,7 @@ impl EditMode {
 			TransformKind::Inset(directions),
 			cursor,
 			false,
-			Some((sources, snapshot)),
+			sources,
 		);
 	}
 
@@ -652,15 +699,8 @@ impl EditMode {
 		cursor: Pos2,
 		segments: Option<usize>,
 	) {
-		let snapshot = mesh.clone();
 		let sources = std::mem::replace(&mut self.selection, mesh.add_loop(points));
-		self.begin_transform(
-			mesh,
-			TransformKind::Translate,
-			cursor,
-			false,
-			Some((sources, snapshot)),
-		);
+		self.begin_transform(mesh, TransformKind::Translate, cursor, false, sources);
 		if let Operation::Transform(transform) = &mut self.operation {
 			transform.primitive = true;
 			transform.segments = segments;
@@ -687,7 +727,7 @@ impl EditMode {
 		kind: TransformKind,
 		anchor: Pos2,
 		drag: bool,
-		created_from: Option<(Vec<usize>, Mesh)>,
+		before: Vec<usize>,
 	) {
 		if self.selection.is_empty() {
 			return;
@@ -705,7 +745,7 @@ impl EditMode {
 			pivot: center(mesh, &self.selection),
 			original,
 			drag,
-			created_from,
+			before,
 			axis: None,
 			primitive: false,
 			segments: None,

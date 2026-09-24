@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod edit;
+mod history;
 mod icon;
 mod layers;
 mod menu;
