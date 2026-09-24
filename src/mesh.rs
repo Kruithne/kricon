@@ -63,17 +63,35 @@ impl Mesh {
 	}
 
 	pub fn add_edge(&mut self, a: usize, b: usize) {
-		if a == b
-			|| self
-				.edges
-				.iter()
-				.any(|&edge| edge == [a, b] || edge == [b, a])
-		{
+		if a == b || self.has_edge(a, b) {
 			return;
 		}
 
 		self.edges.push([a, b]);
 		self.sync_layers();
+	}
+
+	pub fn merge(&mut self, vertices: &[usize], pos: Pos2) -> usize {
+		let target = *vertices.iter().min().unwrap();
+		self.vertices[target] = pos;
+
+		let map = |vertex: usize| {
+			if vertices.contains(&vertex) {
+				target
+			} else {
+				vertex
+			}
+		};
+		for [a, b] in std::mem::take(&mut self.edges) {
+			let (a, b) = (map(a), map(b));
+			if a != b && !self.has_edge(a, b) {
+				self.edges.push([a, b]);
+			}
+		}
+
+		let removed = vertices.iter().copied().filter(|&vertex| vertex != target);
+		self.remove_vertices(removed.collect());
+		target
 	}
 
 	pub fn nearest_vertex(&self, pos: Pos2, radius: f32) -> Option<usize> {
@@ -111,6 +129,12 @@ impl Mesh {
 		let ranks = self.ranks();
 		triangles.sort_by_key(|&[a, _, _]| std::cmp::Reverse(ranks[&self.vertex_layers[a]]));
 		triangles
+	}
+
+	fn has_edge(&self, a: usize, b: usize) -> bool {
+		self.edges
+			.iter()
+			.any(|&edge| edge == [a, b] || edge == [b, a])
 	}
 
 	fn ranks(&self) -> HashMap<u32, usize> {

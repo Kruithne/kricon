@@ -14,15 +14,52 @@ const AXIS_WIDTH: f32 = 1.0;
 const AXIS_X_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
 const AXIS_Y_COLOR: Color32 = Color32::from_rgb(139, 220, 0);
 pub const SELECTED_COLOR: Color32 = Color32::WHITE;
-const MENU: [(MenuAction, &str, &str); 2] = [
+const QUICK_MENU: [(MenuAction, &str, &str); 2] = [
 	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
 	(MenuAction::SelectLinked, "Select Linked (L)", icon::BORING),
+];
+const MERGE_MENU: [(MenuAction, &str, &str); 4] = [
+	(
+		MenuAction::Merge(MergeTarget::Last),
+		"At Last",
+		icon::BORING,
+	),
+	(
+		MenuAction::Merge(MergeTarget::Center),
+		"At Center",
+		icon::BORING,
+	),
+	(
+		MenuAction::Merge(MergeTarget::First),
+		"At First",
+		icon::BORING,
+	),
+	(
+		MenuAction::Merge(MergeTarget::Cursor),
+		"At Cursor",
+		icon::BORING,
+	),
 ];
 
 #[derive(Clone, Copy)]
 enum MenuAction {
 	AddVertex,
 	SelectLinked,
+	Merge(MergeTarget),
+}
+
+#[derive(Clone, Copy)]
+enum MergeTarget {
+	Last,
+	Center,
+	First,
+	Cursor,
+}
+
+#[derive(Clone, Copy)]
+enum MenuKind {
+	Quick,
+	Merge,
 }
 
 #[derive(Default)]
@@ -35,6 +72,7 @@ enum Operation {
 	Transform(Transform),
 	Menu {
 		pos: Pos2,
+		kind: MenuKind,
 	},
 }
 
@@ -93,7 +131,8 @@ impl Transform {
 pub struct EditMode {
 	selection: Vec<usize>,
 	operation: Operation,
-	menu: Menu<MenuAction>,
+	quick_menu: Menu<MenuAction>,
+	merge_menu: Menu<MenuAction>,
 }
 
 impl EditMode {
@@ -101,7 +140,8 @@ impl EditMode {
 		Self {
 			selection: Vec::new(),
 			operation: Operation::Idle,
-			menu: Menu::new("Quick Menu", icon::BORING, &MENU),
+			quick_menu: Menu::new("Quick Menu", icon::BORING, &QUICK_MENU),
+			merge_menu: Menu::new("Merge", icon::BORING, &MERGE_MENU),
 		}
 	}
 
@@ -160,11 +200,15 @@ impl EditMode {
 		view: &View,
 		accent: Color32,
 	) {
-		let Operation::Menu { pos } = self.operation else {
+		let Operation::Menu { pos, kind } = self.operation else {
 			return;
 		};
 
-		let Some(action) = self.menu.show(ctx, view.to_screen(pos), accent) else {
+		let menu = match kind {
+			MenuKind::Quick => &mut self.quick_menu,
+			MenuKind::Merge => &mut self.merge_menu,
+		};
+		let Some(action) = menu.show(ctx, view.to_screen(pos), accent) else {
 			return;
 		};
 
@@ -172,6 +216,7 @@ impl EditMode {
 		match action {
 			MenuAction::AddVertex => self.selection = vec![mesh.add_vertex(pos)],
 			MenuAction::SelectLinked => self.select_linked(mesh),
+			MenuAction::Merge(target) => self.merge(mesh, target, pos),
 		}
 	}
 
@@ -261,7 +306,15 @@ impl EditMode {
 					}
 					self.select_linked(mesh);
 				} else if key(Key::W) {
-					self.operation = Operation::Menu { pos: cursor };
+					self.operation = Operation::Menu {
+						pos: cursor,
+						kind: MenuKind::Quick,
+					};
+				} else if key(Key::M) {
+					self.operation = Operation::Menu {
+						pos: cursor,
+						kind: MenuKind::Merge,
+					};
 				} else if key(Key::Delete) {
 					mesh.remove_vertices(std::mem::take(&mut self.selection));
 				} else if hovered && pressed(PointerButton::Secondary) {
@@ -367,6 +420,20 @@ impl EditMode {
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
 	}
 
+	fn merge(&mut self, mesh: &mut Mesh, target: MergeTarget, cursor: Pos2) {
+		let (Some(&first), Some(&last)) = (self.selection.first(), self.selection.last()) else {
+			return;
+		};
+
+		let pos = match target {
+			MergeTarget::Last => mesh.vertices[last],
+			MergeTarget::Center => center(mesh, &self.selection),
+			MergeTarget::First => mesh.vertices[first],
+			MergeTarget::Cursor => cursor,
+		};
+		self.selection = vec![mesh.merge(&self.selection, pos)];
+	}
+
 	fn duplicate(&mut self, mesh: &mut Mesh, cursor: Pos2) {
 		if self.selection.is_empty() {
 			return;
@@ -394,19 +461,22 @@ impl EditMode {
 			.iter()
 			.map(|&index| mesh.vertices[index])
 			.collect();
-		let sum = original
-			.iter()
-			.fold(Vec2::ZERO, |sum, pos| sum + pos.to_vec2());
-		let pivot = (sum / original.len() as f32).to_pos2();
 
 		self.operation = Operation::Transform(Transform {
 			kind,
 			anchor,
-			pivot,
+			pivot: center(mesh, &self.selection),
 			original,
 			drag,
 			created_from,
 			axis: None,
 		});
 	}
+}
+
+fn center(mesh: &Mesh, vertices: &[usize]) -> Pos2 {
+	let sum = vertices.iter().fold(Vec2::ZERO, |sum, &index| {
+		sum + mesh.vertices[index].to_vec2()
+	});
+	(sum / vertices.len() as f32).to_pos2()
 }
