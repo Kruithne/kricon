@@ -62,6 +62,14 @@ impl Mesh {
 			.map(|(index, _)| index)
 	}
 
+	pub fn linked(&self, vertices: &[usize]) -> Vec<usize> {
+		let (components, _) = self.components();
+		let selected: HashSet<usize> = vertices.iter().map(|&vertex| components[vertex]).collect();
+		(0..self.vertices.len())
+			.filter(|&vertex| selected.contains(&components[vertex]))
+			.collect()
+	}
+
 	pub fn remove_vertices(&mut self, mut indices: Vec<usize>) {
 		indices.sort_unstable();
 		for index in indices.into_iter().rev() {

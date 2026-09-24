@@ -6,13 +6,18 @@ use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Stroke, Vec2, 
 
 const VERTEX_SIZE: f32 = 6.0;
 const VERTEX_HIT_RADIUS: f32 = 8.0;
+const LINK_PICK_RADIUS: f32 = 32.0;
 const EDGE_WIDTH: f32 = 1.5;
 pub const SELECTED_COLOR: Color32 = Color32::WHITE;
-const MENU: [(MenuAction, &str, &str); 1] = [(MenuAction::AddVertex, "Add Vertex", icon::BORING)];
+const MENU: [(MenuAction, &str, &str); 2] = [
+	(MenuAction::AddVertex, "Add Vertex", icon::BORING),
+	(MenuAction::SelectLinked, "Select Linked", icon::BORING),
+];
 
 #[derive(Clone, Copy)]
 enum MenuAction {
 	AddVertex,
+	SelectLinked,
 }
 
 #[derive(Default)]
@@ -145,6 +150,7 @@ impl EditMode {
 		self.operation = Operation::Idle;
 		match action {
 			MenuAction::AddVertex => self.selection = vec![mesh.add_vertex(pos)],
+			MenuAction::SelectLinked => self.select_linked(mesh),
 		}
 	}
 
@@ -202,6 +208,12 @@ impl EditMode {
 					}
 				} else if key(Key::E) {
 					self.extrude(mesh, cursor);
+				} else if key(Key::L) {
+					if self.selection.is_empty() {
+						let radius = LINK_PICK_RADIUS / view.scale;
+						self.selection.extend(mesh.nearest_vertex(cursor, radius));
+					}
+					self.select_linked(mesh);
 				} else if key(Key::W) {
 					self.operation = Operation::Menu { pos: cursor };
 				} else if key(Key::Delete) {
@@ -280,6 +292,14 @@ impl EditMode {
 
 		let isolate = (!shift && self.selection.len() > 1).then_some(index);
 		self.operation = Operation::Grab { isolate };
+	}
+
+	fn select_linked(&mut self, mesh: &Mesh) {
+		for vertex in mesh.linked(&self.selection) {
+			if !self.selection.contains(&vertex) {
+				self.selection.push(vertex);
+			}
+		}
 	}
 
 	fn extrude(&mut self, mesh: &mut Mesh, cursor: Pos2) {
