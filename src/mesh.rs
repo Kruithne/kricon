@@ -116,6 +116,31 @@ impl Mesh {
 		self.remove_vertices(vertices);
 	}
 
+	pub fn subdivide(&mut self, vertices: &[usize]) -> Vec<usize> {
+		let mut midpoints = Vec::new();
+		for index in 0..self.edges.len() {
+			let [a, b] = self.edges[index];
+			if !vertices.contains(&a) || !vertices.contains(&b) {
+				continue;
+			}
+
+			let midpoint = self.vertices.len();
+			self.vertices
+				.push(self.vertices[a].lerp(self.vertices[b], 0.5));
+			self.vertex_layers.push(self.vertex_layers[a]);
+			self.edges[index] = [a, midpoint];
+			self.edges.push([midpoint, b]);
+
+			for hole in &mut self.holes {
+				if hole.contains(&a) && hole.contains(&b) {
+					hole.push(midpoint);
+				}
+			}
+			midpoints.push(midpoint);
+		}
+		midpoints
+	}
+
 	pub fn toggle_hole(&mut self, vertices: &[usize]) {
 		let faces: Vec<Vec<usize>> = self
 			.faces()
