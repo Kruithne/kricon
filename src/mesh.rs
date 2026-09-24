@@ -7,6 +7,7 @@ pub struct Mesh {
 	pub edges: Vec<[usize; 2]>,
 	pub layers: Vec<u32>,
 	vertex_layers: Vec<u32>,
+	holes: Vec<Vec<usize>>,
 }
 
 impl Mesh {
@@ -87,6 +88,10 @@ impl Mesh {
 			}
 		}
 
+		for hole in &mut self.holes {
+			*hole = face_key(&hole.iter().map(|&vertex| map(vertex)).collect::<Vec<_>>());
+		}
+
 		let removed = vertices.iter().copied().filter(|&vertex| vertex != target);
 		self.remove_vertices(removed.collect());
 		target
@@ -109,6 +114,20 @@ impl Mesh {
 		}
 
 		self.remove_vertices(vertices);
+	}
+
+	pub fn toggle_hole(&mut self, vertices: &[usize]) {
+		let faces: Vec<Vec<usize>> = self
+			.faces()
+			.iter()
+			.map(|face| face_key(face))
+			.filter(|key| key.iter().all(|vertex| vertices.contains(vertex)))
+			.collect();
+		let fill = faces.iter().all(|key| self.holes.contains(key));
+		self.holes.retain(|hole| !faces.contains(hole));
+		if !fill {
+			self.holes.extend(faces);
+		}
 	}
 
 	pub fn nearest_vertex(&self, pos: Pos2, radius: f32) -> Option<usize> {
@@ -140,7 +159,7 @@ impl Mesh {
 	pub fn face_at(&self, pos: Pos2) -> Option<Vec<usize>> {
 		let ranks = self.ranks();
 		let key = |face: &Vec<usize>| (ranks[&self.vertex_layers[face[0]]], self.signed_area(face));
-		self.faces()
+		self.filled_faces()
 			.into_iter()
 			.filter(|face| self.encloses(face, pos))
 			.min_by(|a, b| {
@@ -167,7 +186,7 @@ impl Mesh {
 
 	pub fn triangles(&self) -> Vec<[usize; 3]> {
 		let mut triangles = Vec::new();
-		for face in self.faces() {
+		for face in self.filled_faces() {
 			self.triangulate(face, &mut triangles);
 		}
 
@@ -193,6 +212,16 @@ impl Mesh {
 			let [a, b] = self.edges[index];
 			if let (Some(&a), Some(&b)) = (copies.get(&a), copies.get(&b)) {
 				self.edges.push([a, b]);
+			}
+		}
+
+		for index in 0..self.holes.len() {
+			let copy: Option<Vec<usize>> = self.holes[index]
+				.iter()
+				.map(|vertex| copies.get(vertex).copied())
+				.collect();
+			if let Some(copy) = copy {
+				self.holes.push(face_key(&copy));
 			}
 		}
 
@@ -300,6 +329,23 @@ impl Mesh {
 				*vertex -= 1;
 			}
 		}
+
+		for hole in &mut self.holes {
+			hole.retain(|&vertex| vertex != index);
+			for vertex in hole.iter_mut() {
+				if *vertex > index {
+					*vertex -= 1;
+				}
+			}
+		}
+		self.holes.retain(|hole| hole.len() >= 3);
+	}
+
+	fn filled_faces(&self) -> Vec<Vec<usize>> {
+		self.faces()
+			.into_iter()
+			.filter(|face| !self.holes.contains(&face_key(face)))
+			.collect()
 	}
 
 	fn faces(&self) -> Vec<Vec<usize>> {
@@ -417,6 +463,13 @@ impl Mesh {
 			triangles.push([a, b, c]);
 		}
 	}
+}
+
+fn face_key(face: &[usize]) -> Vec<usize> {
+	let mut key = face.to_vec();
+	key.sort_unstable();
+	key.dedup();
+	key
 }
 
 fn cross(a: Vec2, b: Vec2) -> f32 {

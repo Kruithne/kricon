@@ -20,6 +20,7 @@ kricon is a purpose-built icon editing utility.
 | `W` | Opens the create menu. |
 | `M` | Opens the merge menu. |
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
+| `P` | Toggles a hole in the faces enclosed by the selected vertices. |
 | `Delete` | Deletes the selected vertices. |
 
 ## <img src="res/icons/ico_boring.svg" width="18"> Legal

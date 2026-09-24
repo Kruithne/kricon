@@ -427,6 +427,8 @@ impl EditMode {
 					};
 				} else if key(Key::X) {
 					mesh.dissolve(std::mem::take(&mut self.selection));
+				} else if key(Key::P) {
+					mesh.toggle_hole(&self.selection);
 				} else if key(Key::C) {
 					self.operation = Operation::Brush;
 				} else if key(Key::B) {
