@@ -9,6 +9,7 @@ kricon is a purpose-built icon editing utility.
 | `G` | Translates the selected vertices. |
 | `R` | Rotates the selected vertices. |
 | `S` | Scales the selected vertices. |
+| `Shift` + `S` | Subdivides the edges between the selected vertices. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
 | `Alt` | Snaps the translated vertices to the grid while held. |
 | `0`-`9` / `-` | Rotates by the typed angle in degrees. A negative angle rotates clockwise. |
@@ -23,6 +24,7 @@ kricon is a purpose-built icon editing utility.
 | `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
 | `L` | Selects all linked vertices to the currently selected. |
 | `W` | Opens the create menu. |
+| `Shift` + `Scroll` | Scales the new primitive before placement. `Scroll` sets the vertex count of a new circle. |
 | `M` | Opens the merge menu. |
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
 | `P` | Toggles a hole in the faces enclosed by the selected vertices. |
