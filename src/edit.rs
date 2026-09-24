@@ -4,7 +4,8 @@ use crate::mesh::Mesh;
 use crate::toolbar::Tool;
 use crate::view::View;
 use eframe::egui::{
-	self, Color32, Event, Key, PointerButton, Pos2, Rect, Stroke, Vec2, emath::Rot2, pos2, vec2,
+	self, Color32, Event, Key, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2, emath::Rot2,
+	pos2, vec2,
 };
 use std::f32::consts::TAU;
 
@@ -21,8 +22,8 @@ const CIRCLE_RADIUS: f32 = 1.0;
 const CIRCLE_SEGMENTS: usize = 16;
 const MIN_CIRCLE_SEGMENTS: usize = 3;
 const MAX_CIRCLE_SEGMENTS: usize = 128;
-const BRUSH_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
-const BRUSH_WIDTH: f32 = 1.5;
+const TOOL_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
+const TOOL_WIDTH: f32 = 1.5;
 const BRUSH_RADIUS: f32 = 24.0;
 const BRUSH_STEP: f32 = 4.0;
 const MIN_BRUSH_RADIUS: f32 = 4.0;
@@ -90,6 +91,9 @@ enum Operation {
 		kind: MenuKind,
 	},
 	Brush,
+	BoxSelect {
+		start: Option<Pos2>,
+	},
 }
 
 #[derive(PartialEq)]
@@ -234,6 +238,7 @@ impl EditMode {
 	pub fn tool(&self) -> Option<Tool> {
 		match self.operation {
 			Operation::Brush => Some(Tool::Brush),
+			Operation::BoxSelect { .. } => Some(Tool::BoxSelect),
 			_ => None,
 		}
 	}
@@ -241,9 +246,15 @@ impl EditMode {
 	pub fn toggle_tool(&mut self, mesh: &mut Mesh, tool: Tool) {
 		let active = self.tool() == Some(tool);
 		self.cancel(mesh);
-		if !active && tool == Tool::Brush {
-			self.operation = Operation::Brush;
+		if active {
+			return;
 		}
+
+		self.operation = match tool {
+			Tool::Brush => Operation::Brush,
+			Tool::BoxSelect => Operation::BoxSelect { start: None },
+			_ => Operation::Idle,
+		};
 	}
 
 	pub fn selection(&self) -> &[usize] {
@@ -345,10 +356,17 @@ impl EditMode {
 		if let Operation::Brush = self.operation
 			&& let Some(pos) = painter.ctx().pointer_hover_pos()
 		{
-			painter.circle_stroke(
-				pos,
-				self.brush_radius,
-				Stroke::new(BRUSH_WIDTH, BRUSH_COLOR),
+			painter.circle_stroke(pos, self.brush_radius, Stroke::new(TOOL_WIDTH, TOOL_COLOR));
+		}
+
+		if let Operation::BoxSelect { start: Some(start) } = self.operation
+			&& let Some(pos) = painter.ctx().pointer_latest_pos()
+		{
+			painter.rect_stroke(
+				Rect::from_two_pos(view.to_screen(start), pos),
+				0.0,
+				Stroke::new(TOOL_WIDTH, TOOL_COLOR),
+				StrokeKind::Middle,
 			);
 		}
 
@@ -411,6 +429,8 @@ impl EditMode {
 					mesh.dissolve(std::mem::take(&mut self.selection));
 				} else if key(Key::C) {
 					self.operation = Operation::Brush;
+				} else if key(Key::B) {
+					self.operation = Operation::BoxSelect { start: None };
 				} else if key(Key::Delete) {
 					mesh.remove_vertices(std::mem::take(&mut self.selection));
 				} else if hovered && pressed(PointerButton::Secondary) {
@@ -509,6 +529,20 @@ impl EditMode {
 				} else if down(PointerButton::Middle) && !input.modifiers.shift {
 					let inside: Vec<usize> = inside.collect();
 					self.selection.retain(|vertex| !inside.contains(vertex));
+				}
+			}
+			Operation::BoxSelect { start } => {
+				if key(Key::B) || key(Key::Escape) || (hovered && pressed(PointerButton::Secondary))
+				{
+					self.operation = Operation::Idle;
+				} else if let Some(start) = *start {
+					if !input.pointer.button_down(PointerButton::Primary) {
+						let rect = Rect::from_two_pos(start, cursor);
+						self.extend_selection(mesh.vertices_in(rect));
+						self.operation = Operation::Idle;
+					}
+				} else if hovered && pressed(PointerButton::Primary) {
+					*start = Some(cursor);
 				}
 			}
 			Operation::Menu { .. } => {

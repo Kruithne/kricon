@@ -1,4 +1,4 @@
-use eframe::egui::{Pos2, Vec2};
+use eframe::egui::{Pos2, Rect, Vec2};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -126,6 +126,14 @@ impl Mesh {
 			.iter()
 			.enumerate()
 			.filter(move |(_, vertex)| vertex.distance_sq(pos) <= radius * radius)
+			.map(|(index, _)| index)
+	}
+
+	pub fn vertices_in(&self, rect: Rect) -> impl Iterator<Item = usize> {
+		self.vertices
+			.iter()
+			.enumerate()
+			.filter(move |(_, vertex)| rect.contains(**vertex))
 			.map(|(index, _)| index)
 	}
 

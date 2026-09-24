@@ -2,7 +2,7 @@ use crate::icon::{self, Icon};
 use crate::panel;
 use eframe::egui;
 
-const TOOLS: [Tool; 3] = [Tool::Edit, Tool::Brush, Tool::Layers];
+const TOOLS: [Tool; 4] = [Tool::Edit, Tool::Brush, Tool::BoxSelect, Tool::Layers];
 const BUTTON_SIZE: f32 = 36.0;
 const ICON_SIZE: f32 = 20.0;
 const MARGIN: f32 = 12.0;
@@ -11,13 +11,14 @@ const MARGIN: f32 = 12.0;
 pub enum Tool {
 	Edit,
 	Brush,
+	BoxSelect,
 	Layers,
 }
 
 impl Tool {
 	pub fn icon(self) -> &'static str {
 		match self {
-			Tool::Edit | Tool::Brush | Tool::Layers => icon::BORING,
+			Tool::Edit | Tool::Brush | Tool::BoxSelect | Tool::Layers => icon::BORING,
 		}
 	}
 }
@@ -51,7 +52,7 @@ impl Toolbar {
 					for (tool, icon) in TOOLS.into_iter().zip(&mut self.icons) {
 						let selected = match tool {
 							Tool::Layers => self.layers,
-							Tool::Brush => mode == Some(tool),
+							Tool::Brush | Tool::BoxSelect => mode == Some(tool),
 							Tool::Edit => self.active == Some(tool),
 						};
 						let (rect, response, tint) = panel::item(
@@ -63,7 +64,7 @@ impl Toolbar {
 						if response.clicked() {
 							match tool {
 								Tool::Layers => self.layers = !selected,
-								Tool::Brush => {
+								Tool::Brush | Tool::BoxSelect => {
 									self.active = Some(Tool::Edit);
 									toggled = Some(tool);
 								}
