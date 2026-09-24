@@ -1,6 +1,7 @@
 use crate::icon;
 use crate::menu::Menu;
 use crate::mesh::Mesh;
+use crate::toolbar::Tool;
 use crate::view::View;
 use eframe::egui::{
 	self, Color32, Event, Key, PointerButton, Pos2, Rect, Stroke, Vec2, emath::Rot2, pos2, vec2,
@@ -20,6 +21,12 @@ const CIRCLE_RADIUS: f32 = 1.0;
 const CIRCLE_SEGMENTS: usize = 16;
 const MIN_CIRCLE_SEGMENTS: usize = 3;
 const MAX_CIRCLE_SEGMENTS: usize = 128;
+const BRUSH_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
+const BRUSH_WIDTH: f32 = 1.5;
+const BRUSH_RADIUS: f32 = 24.0;
+const BRUSH_STEP: f32 = 4.0;
+const MIN_BRUSH_RADIUS: f32 = 4.0;
+const MAX_BRUSH_RADIUS: f32 = 256.0;
 const CREATE_MENU: [(MenuAction, &str, &str); 3] = [
 	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
 	(MenuAction::AddRect, "Add Rect", icon::BORING),
@@ -82,6 +89,7 @@ enum Operation {
 		pos: Pos2,
 		kind: MenuKind,
 	},
+	Brush,
 }
 
 #[derive(PartialEq)]
@@ -174,6 +182,7 @@ pub struct EditMode {
 	operation: Operation,
 	create_menu: Menu<MenuAction>,
 	merge_menu: Menu<MenuAction>,
+	brush_radius: f32,
 }
 
 impl EditMode {
@@ -183,6 +192,7 @@ impl EditMode {
 			operation: Operation::Idle,
 			create_menu: Menu::new("Create", icon::BORING, &CREATE_MENU),
 			merge_menu: Menu::new("Merge", icon::BORING, &MERGE_MENU),
+			brush_radius: BRUSH_RADIUS,
 		}
 	}
 
@@ -217,8 +227,23 @@ impl EditMode {
 			Operation::Transform(Transform {
 				segments: Some(_),
 				..
-			})
+			}) | Operation::Brush
 		)
+	}
+
+	pub fn tool(&self) -> Option<Tool> {
+		match self.operation {
+			Operation::Brush => Some(Tool::Brush),
+			_ => None,
+		}
+	}
+
+	pub fn toggle_tool(&mut self, mesh: &mut Mesh, tool: Tool) {
+		let active = self.tool() == Some(tool);
+		self.cancel(mesh);
+		if !active && tool == Tool::Brush {
+			self.operation = Operation::Brush;
+		}
 	}
 
 	pub fn selection(&self) -> &[usize] {
@@ -317,6 +342,16 @@ impl EditMode {
 			painter.line_segment(points, Stroke::new(AXIS_WIDTH, color));
 		}
 
+		if let Operation::Brush = self.operation
+			&& let Some(pos) = painter.ctx().pointer_hover_pos()
+		{
+			painter.circle_stroke(
+				pos,
+				self.brush_radius,
+				Stroke::new(BRUSH_WIDTH, BRUSH_COLOR),
+			);
+		}
+
 		for (index, &vertex) in mesh.vertices.iter().enumerate() {
 			let rect = Rect::from_center_size(view.to_screen(vertex), Vec2::splat(VERTEX_SIZE));
 			painter.rect_filled(rect, 0.0, color(selected[index]));
@@ -361,7 +396,7 @@ impl EditMode {
 						let radius = LINK_PICK_RADIUS / view.scale;
 						self.selection.extend(mesh.nearest_vertex(cursor, radius));
 					}
-					self.select_linked(mesh);
+					self.extend_selection(mesh.linked(&self.selection));
 				} else if key(Key::W) {
 					self.operation = Operation::Menu {
 						pos: cursor,
@@ -374,6 +409,8 @@ impl EditMode {
 					};
 				} else if key(Key::X) {
 					mesh.dissolve(std::mem::take(&mut self.selection));
+				} else if key(Key::C) {
+					self.operation = Operation::Brush;
 				} else if key(Key::Delete) {
 					mesh.remove_vertices(std::mem::take(&mut self.selection));
 				} else if hovered && pressed(PointerButton::Secondary) {
@@ -419,16 +456,7 @@ impl EditMode {
 					}
 				}
 
-				let steps: isize = input
-					.events
-					.iter()
-					.filter_map(|event| match event {
-						Event::MouseWheel { delta, .. } if delta.y != 0.0 => {
-							Some(delta.y.signum() as isize)
-						}
-						_ => None,
-					})
-					.sum();
+				let steps = wheel_steps(input);
 				if let Some(segments) = &mut transform.segments
 					&& steps != 0
 				{
@@ -464,6 +492,23 @@ impl EditMode {
 					self.cancel(mesh);
 				} else if confirm {
 					self.operation = Operation::Idle;
+				}
+			}
+			Operation::Brush => {
+				let steps = wheel_steps(input) as f32;
+				self.brush_radius = (self.brush_radius + steps * BRUSH_STEP)
+					.clamp(MIN_BRUSH_RADIUS, MAX_BRUSH_RADIUS);
+
+				let down = |button: PointerButton| hovered && input.pointer.button_down(button);
+				let inside = mesh.vertices_within(cursor, self.brush_radius / view.scale);
+				if key(Key::C) || key(Key::Escape) || (hovered && pressed(PointerButton::Secondary))
+				{
+					self.operation = Operation::Idle;
+				} else if down(PointerButton::Primary) {
+					self.extend_selection(inside);
+				} else if down(PointerButton::Middle) && !input.modifiers.shift {
+					let inside: Vec<usize> = inside.collect();
+					self.selection.retain(|vertex| !inside.contains(vertex));
 				}
 			}
 			Operation::Menu { .. } => {
@@ -510,16 +555,12 @@ impl EditMode {
 			self.selection.clear();
 		}
 
-		for vertex in face {
-			if !self.selection.contains(&vertex) {
-				self.selection.push(vertex);
-			}
-		}
+		self.extend_selection(face);
 		self.operation = Operation::Grab { isolate: None };
 	}
 
-	fn select_linked(&mut self, mesh: &Mesh) {
-		for vertex in mesh.linked(&self.selection) {
+	fn extend_selection(&mut self, vertices: impl IntoIterator<Item = usize>) {
+		for vertex in vertices {
 			if !self.selection.contains(&vertex) {
 				self.selection.push(vertex);
 			}
@@ -606,6 +647,17 @@ fn center(mesh: &Mesh, vertices: &[usize]) -> Pos2 {
 		sum + mesh.vertices[index].to_vec2()
 	});
 	(sum / vertices.len() as f32).to_pos2()
+}
+
+fn wheel_steps(input: &egui::InputState) -> isize {
+	input
+		.events
+		.iter()
+		.filter_map(|event| match event {
+			Event::MouseWheel { delta, .. } if delta.y != 0.0 => Some(delta.y.signum() as isize),
+			_ => None,
+		})
+		.sum()
 }
 
 fn rect_points(center: Pos2) -> [Pos2; 4] {

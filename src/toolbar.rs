@@ -2,7 +2,7 @@ use crate::icon::{self, Icon};
 use crate::panel;
 use eframe::egui;
 
-const TOOLS: [Tool; 2] = [Tool::Edit, Tool::Layers];
+const TOOLS: [Tool; 3] = [Tool::Edit, Tool::Brush, Tool::Layers];
 const BUTTON_SIZE: f32 = 36.0;
 const ICON_SIZE: f32 = 20.0;
 const MARGIN: f32 = 12.0;
@@ -10,13 +10,14 @@ const MARGIN: f32 = 12.0;
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tool {
 	Edit,
+	Brush,
 	Layers,
 }
 
 impl Tool {
 	pub fn icon(self) -> &'static str {
 		match self {
-			Tool::Edit | Tool::Layers => icon::BORING,
+			Tool::Edit | Tool::Brush | Tool::Layers => icon::BORING,
 		}
 	}
 }
@@ -36,7 +37,8 @@ impl Toolbar {
 		}
 	}
 
-	pub fn show(&mut self, ctx: &egui::Context) {
+	pub fn show(&mut self, ctx: &egui::Context, mode: Option<Tool>) -> Option<Tool> {
+		let mut toggled = None;
 		let icon_pixels = (ICON_SIZE * ctx.pixels_per_point()).round() as usize;
 		let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
 
@@ -49,7 +51,8 @@ impl Toolbar {
 					for (tool, icon) in TOOLS.into_iter().zip(&mut self.icons) {
 						let selected = match tool {
 							Tool::Layers => self.layers,
-							_ => self.active == Some(tool),
+							Tool::Brush => mode == Some(tool),
+							Tool::Edit => self.active == Some(tool),
 						};
 						let (rect, response, tint) = panel::item(
 							ui,
@@ -60,7 +63,11 @@ impl Toolbar {
 						if response.clicked() {
 							match tool {
 								Tool::Layers => self.layers = !selected,
-								_ => self.active = (!selected).then_some(tool),
+								Tool::Brush => {
+									self.active = Some(Tool::Edit);
+									toggled = Some(tool);
+								}
+								Tool::Edit => self.active = (!selected).then_some(tool),
 							}
 						}
 
@@ -73,5 +80,7 @@ impl Toolbar {
 					}
 				});
 			});
+
+		toggled
 	}
 }

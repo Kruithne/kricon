@@ -121,6 +121,14 @@ impl Mesh {
 			.map(|(index, _)| index)
 	}
 
+	pub fn vertices_within(&self, pos: Pos2, radius: f32) -> impl Iterator<Item = usize> {
+		self.vertices
+			.iter()
+			.enumerate()
+			.filter(move |(_, vertex)| vertex.distance_sq(pos) <= radius * radius)
+			.map(|(index, _)| index)
+	}
+
 	pub fn face_at(&self, pos: Pos2) -> Option<Vec<usize>> {
 		let ranks = self.ranks();
 		let key = |face: &Vec<usize>| (ranks[&self.vertex_layers[face[0]]], self.signed_area(face));

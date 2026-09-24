@@ -119,7 +119,9 @@ impl eframe::App for App {
 		self.draw_faces(painter);
 		self.edit.draw(&self.mesh, &self.view, painter, self.accent);
 
-		self.toolbar.show(ui.ctx());
+		if let Some(tool) = self.toolbar.show(ui.ctx(), self.edit.tool()) {
+			self.edit.toggle_tool(&mut self.mesh, tool);
+		}
 		self.edit
 			.show_menu(ui.ctx(), &mut self.mesh, &self.view, self.accent);
 		if self.toolbar.layers {
