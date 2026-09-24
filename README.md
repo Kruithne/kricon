@@ -10,6 +10,7 @@ kricon is a purpose-built icon editing utility.
 | `R` | Rotates the selected vertices. |
 | `S` | Scales the selected vertices. |
 | `Shift` + `S` | Subdivides the edges between the selected vertices. |
+| `Ctrl` + `S` | Subdivides the edges between the selected vertices along a curve fitted to the neighbouring vertices. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
 | `Alt` | Snaps the translated vertices to the grid while held. |
 | `0`-`9` / `-` | Rotates by the typed angle in degrees. A negative angle rotates clockwise. |

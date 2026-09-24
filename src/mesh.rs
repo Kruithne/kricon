@@ -116,17 +116,28 @@ impl Mesh {
 		self.remove_vertices(vertices);
 	}
 
-	pub fn subdivide(&mut self, vertices: &[usize]) -> Vec<usize> {
-		let mut midpoints = Vec::new();
-		for index in 0..self.edges.len() {
-			let [a, b] = self.edges[index];
-			if !vertices.contains(&a) || !vertices.contains(&b) {
-				continue;
-			}
+	pub fn subdivide(&mut self, vertices: &[usize], smooth: bool) -> Vec<usize> {
+		let neighbours = self.neighbours();
+		let targets: Vec<(usize, Pos2)> = self
+			.edges
+			.iter()
+			.enumerate()
+			.filter(|(_, [a, b])| vertices.contains(a) && vertices.contains(b))
+			.map(|(index, &[a, b])| {
+				let pos = if smooth {
+					self.arc_midpoint(&neighbours, a, b)
+				} else {
+					self.vertices[a].lerp(self.vertices[b], 0.5)
+				};
+				(index, pos)
+			})
+			.collect();
 
+		let mut midpoints = Vec::new();
+		for (index, pos) in targets {
+			let [a, b] = self.edges[index];
 			let midpoint = self.vertices.len();
-			self.vertices
-				.push(self.vertices[a].lerp(self.vertices[b], 0.5));
+			self.vertices.push(pos);
 			self.vertex_layers.push(self.vertex_layers[a]);
 			self.edges[index] = [a, midpoint];
 			self.edges.push([midpoint, b]);
@@ -251,6 +262,22 @@ impl Mesh {
 		}
 
 		(offset..self.vertices.len()).collect()
+	}
+
+	fn arc_midpoint(&self, neighbours: &[Vec<usize>], a: usize, b: usize) -> Pos2 {
+		let other = |vertex: usize, skip: usize| match neighbours[vertex][..] {
+			[x, y] => Some(if x == skip { y } else { x }),
+			_ => None,
+		};
+
+		let (pa, pb) = (self.vertices[a], self.vertices[b]);
+		let from_a = other(a, b).and_then(|p| arc_point(self.vertices[p], pa, pb));
+		let from_b = other(b, a).and_then(|q| arc_point(self.vertices[q], pa, pb));
+		match (from_a, from_b) {
+			(Some(x), Some(y)) => x.lerp(y, 0.5),
+			(Some(point), None) | (None, Some(point)) => point,
+			(None, None) => pa.lerp(pb, 0.5),
+		}
 	}
 
 	fn has_edge(&self, a: usize, b: usize) -> bool {
@@ -499,6 +526,18 @@ fn face_key(face: &[usize]) -> Vec<usize> {
 
 fn cross(a: Vec2, b: Vec2) -> f32 {
 	a.x * b.y - a.y * b.x
+}
+
+fn arc_point(p: Pos2, a: Pos2, b: Pos2) -> Option<Pos2> {
+	let (u, v) = (a - p, b - p);
+	let denominator = u.length() * v.length() + u.dot(v);
+	if denominator <= f32::EPSILON {
+		return None;
+	}
+
+	let chord = b - a;
+	let tangent = cross(chord, p - a) / denominator;
+	Some(a.lerp(b, 0.5) + Vec2::new(chord.y, -chord.x) * tangent / 2.0)
 }
 
 fn inside_triangle(p: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {

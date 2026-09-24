@@ -376,8 +376,8 @@ impl EditMode {
 					self.begin_transform(mesh, TransformKind::Translate, cursor, false, None);
 				} else if key(Key::R) {
 					self.begin_transform(mesh, TransformKind::Rotate, cursor, false, None);
-				} else if key(Key::S) && input.modifiers.shift {
-					let midpoints = mesh.subdivide(&self.selection);
+				} else if key(Key::S) && (input.modifiers.shift || input.modifiers.ctrl) {
+					let midpoints = mesh.subdivide(&self.selection, input.modifiers.ctrl);
 					self.extend_selection(midpoints);
 				} else if key(Key::S) {
 					self.begin_transform(mesh, TransformKind::Scale, cursor, false, None);
