@@ -92,6 +92,25 @@ impl Mesh {
 		target
 	}
 
+	pub fn dissolve(&mut self, vertices: Vec<usize>) {
+		for &vertex in &vertices {
+			let neighbours: Vec<usize> = self
+				.edges
+				.iter()
+				.filter(|edge| edge.contains(&vertex))
+				.map(|&[a, b]| if a == vertex { b } else { a })
+				.collect();
+			self.edges.retain(|edge| !edge.contains(&vertex));
+			if let [a, b] = neighbours[..]
+				&& !self.has_edge(a, b)
+			{
+				self.edges.push([a, b]);
+			}
+		}
+
+		self.remove_vertices(vertices);
+	}
+
 	pub fn nearest_vertex(&self, pos: Pos2, radius: f32) -> Option<usize> {
 		self.vertices
 			.iter()

@@ -340,6 +340,8 @@ impl EditMode {
 						pos: cursor,
 						kind: MenuKind::Merge,
 					};
+				} else if key(Key::X) {
+					mesh.dissolve(std::mem::take(&mut self.selection));
 				} else if key(Key::Delete) {
 					mesh.remove_vertices(std::mem::take(&mut self.selection));
 				} else if hovered && pressed(PointerButton::Secondary) {
