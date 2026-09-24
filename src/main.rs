@@ -21,6 +21,7 @@ const BACKGROUND_COLOR: egui::Color32 = egui::Color32::from_rgb(24, 24, 27);
 const GRID_COLOR: egui::Color32 = egui::Color32::from_rgb(44, 44, 48);
 const DEFAULT_ACCENT_COLOR: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
 const FACE_COLOR: egui::Color32 = egui::Color32::WHITE;
+const DEFAULT_FACE_OPACITY: f32 = 0.1;
 const MARGIN: f32 = 12.0;
 
 struct App {
@@ -29,6 +30,7 @@ struct App {
 	mesh: Mesh,
 	edit: EditMode,
 	accent: egui::Color32,
+	face_opacity: f32,
 }
 
 impl App {
@@ -50,9 +52,10 @@ impl App {
 	}
 
 	fn draw_faces(&self, painter: &egui::Painter) {
+		let color = FACE_COLOR.gamma_multiply(self.face_opacity);
 		let mut shape = egui::Mesh::default();
 		for &vertex in &self.mesh.vertices {
-			shape.colored_vertex(self.view.to_screen(vertex), FACE_COLOR);
+			shape.colored_vertex(self.view.to_screen(vertex), color);
 		}
 
 		for [a, b, c] in self.mesh.triangles() {
@@ -71,6 +74,14 @@ impl App {
 					&mut self.accent,
 					egui::color_picker::Alpha::Opaque,
 				);
+			});
+	}
+
+	fn show_face_opacity(&mut self, ctx: &egui::Context) {
+		egui::Area::new(egui::Id::new("face_opacity"))
+			.anchor(egui::Align2::RIGHT_BOTTOM, [-MARGIN, -MARGIN])
+			.show(ctx, |ui| {
+				ui.add(egui::Slider::new(&mut self.face_opacity, 0.0..=1.0));
 			});
 	}
 }
@@ -101,6 +112,7 @@ impl eframe::App for App {
 		self.toolbar.show(ui.ctx());
 		self.edit.show_menu(ui.ctx(), &mut self.mesh, &self.view);
 		self.show_accent_picker(ui.ctx());
+		self.show_face_opacity(ui.ctx());
 	}
 }
 
@@ -127,6 +139,7 @@ fn main() -> eframe::Result {
 				mesh: Mesh::default(),
 				edit: EditMode::new(),
 				accent: DEFAULT_ACCENT_COLOR,
+				face_opacity: DEFAULT_FACE_OPACITY,
 			}))
 		}),
 	)
