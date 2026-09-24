@@ -378,7 +378,14 @@ impl EditMode {
 					mesh.remove_vertices(std::mem::take(&mut self.selection));
 				} else if hovered && pressed(PointerButton::Secondary) {
 					let radius = VERTEX_HIT_RADIUS / view.scale;
-					self.select(mesh.nearest_vertex(cursor, radius), input.modifiers.shift);
+					let hit = mesh.nearest_vertex(cursor, radius);
+					if hit.is_none()
+						&& let Some(face) = mesh.face_at(cursor)
+					{
+						self.select_face(face, input.modifiers.shift);
+					} else {
+						self.select(hit, input.modifiers.shift);
+					}
 				}
 			}
 			Operation::Grab { isolate } => {
@@ -491,6 +498,24 @@ impl EditMode {
 
 		let isolate = (!shift && self.selection.len() > 1).then_some(index);
 		self.operation = Operation::Grab { isolate };
+	}
+
+	fn select_face(&mut self, face: Vec<usize>, shift: bool) {
+		if shift && face.iter().all(|vertex| self.selection.contains(vertex)) {
+			self.selection.retain(|vertex| !face.contains(vertex));
+			return;
+		}
+
+		if !shift {
+			self.selection.clear();
+		}
+
+		for vertex in face {
+			if !self.selection.contains(&vertex) {
+				self.selection.push(vertex);
+			}
+		}
+		self.operation = Operation::Grab { isolate: None };
 	}
 
 	fn select_linked(&mut self, mesh: &Mesh) {

@@ -121,6 +121,18 @@ impl Mesh {
 			.map(|(index, _)| index)
 	}
 
+	pub fn face_at(&self, pos: Pos2) -> Option<Vec<usize>> {
+		let ranks = self.ranks();
+		let key = |face: &Vec<usize>| (ranks[&self.vertex_layers[face[0]]], self.signed_area(face));
+		self.faces()
+			.into_iter()
+			.filter(|face| self.encloses(face, pos))
+			.min_by(|a, b| {
+				let (a, b) = (key(a), key(b));
+				a.0.cmp(&b.0).then(a.1.total_cmp(&b.1))
+			})
+	}
+
 	pub fn linked(&self, vertices: &[usize]) -> Vec<usize> {
 		let (components, _) = self.components();
 		let selected: HashSet<usize> = vertices.iter().map(|&vertex| components[vertex]).collect();
@@ -341,6 +353,20 @@ impl Mesh {
 			area += a.x * b.y - b.x * a.y;
 		}
 		area / 2.0
+	}
+
+	fn encloses(&self, face: &[usize], pos: Pos2) -> bool {
+		let mut inside = false;
+		for (index, &vertex) in face.iter().enumerate() {
+			let a = self.vertices[vertex];
+			let b = self.vertices[face[(index + 1) % face.len()]];
+			if (a.y > pos.y) != (b.y > pos.y)
+				&& pos.x < a.x + (pos.y - a.y) * (b.x - a.x) / (b.y - a.y)
+			{
+				inside = !inside;
+			}
+		}
+		inside
 	}
 
 	fn triangulate(&self, mut face: Vec<usize>, triangles: &mut Vec<[usize; 3]>) {
