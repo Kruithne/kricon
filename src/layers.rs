@@ -57,6 +57,20 @@ impl Layers {
 					*open = false;
 				}
 
+				if mesh.layers.is_empty() {
+					let (rect, _) = ui.allocate_exact_size(
+						egui::vec2(PANEL_WIDTH, panel::ITEM_HEIGHT + 2.0 * panel::PADDING),
+						egui::Sense::hover(),
+					);
+					ui.painter().text(
+						rect.center(),
+						egui::Align2::CENTER_CENTER,
+						"No layers",
+						egui::FontId::proportional(panel::TEXT_SIZE),
+						panel::CONTENT_COLOR,
+					);
+				}
+
 				let mut rows = Vec::new();
 				let mut dragged = None;
 				for (index, &layer) in mesh.layers.iter().enumerate() {
