@@ -26,6 +26,30 @@ impl Mesh {
 		vertex
 	}
 
+	pub fn duplicate(&mut self, vertices: &[usize]) -> Vec<usize> {
+		let offset = self.vertices.len();
+		let copies: HashMap<usize, usize> = vertices
+			.iter()
+			.enumerate()
+			.map(|(index, &vertex)| (vertex, offset + index))
+			.collect();
+
+		for &vertex in vertices {
+			self.vertices.push(self.vertices[vertex]);
+			self.vertex_layers.push(self.vertex_layers[vertex]);
+		}
+
+		for index in 0..self.edges.len() {
+			let [a, b] = self.edges[index];
+			if let (Some(&a), Some(&b)) = (copies.get(&a), copies.get(&b)) {
+				self.edges.push([a, b]);
+			}
+		}
+
+		self.sync_layers();
+		(offset..self.vertices.len()).collect()
+	}
+
 	pub fn layer(&self, vertex: usize) -> u32 {
 		self.vertex_layers[vertex]
 	}

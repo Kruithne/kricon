@@ -45,7 +45,7 @@ struct Transform {
 	pivot: Pos2,
 	original: Vec<Pos2>,
 	drag: bool,
-	extruded_from: Option<Vec<usize>>,
+	created_from: Option<Vec<usize>>,
 }
 
 impl Transform {
@@ -97,7 +97,7 @@ impl EditMode {
 			return;
 		};
 
-		match transform.extruded_from {
+		match transform.created_from {
 			Some(sources) => {
 				mesh.remove_vertices(std::mem::replace(&mut self.selection, sources));
 			}
@@ -206,6 +206,8 @@ impl EditMode {
 					if let [a, b] = self.selection[..] {
 						mesh.add_edge(a, b);
 					}
+				} else if key(Key::D) && input.modifiers.shift {
+					self.duplicate(mesh, cursor);
 				} else if key(Key::E) {
 					self.extrude(mesh, cursor);
 				} else if key(Key::V) {
@@ -317,13 +319,23 @@ impl EditMode {
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
 	}
 
+	fn duplicate(&mut self, mesh: &mut Mesh, cursor: Pos2) {
+		if self.selection.is_empty() {
+			return;
+		}
+
+		let sources = std::mem::take(&mut self.selection);
+		self.selection = mesh.duplicate(&sources);
+		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
+	}
+
 	fn begin_transform(
 		&mut self,
 		mesh: &Mesh,
 		kind: TransformKind,
 		anchor: Pos2,
 		drag: bool,
-		extruded_from: Option<Vec<usize>>,
+		created_from: Option<Vec<usize>>,
 	) {
 		if self.selection.is_empty() {
 			return;
@@ -345,7 +357,7 @@ impl EditMode {
 			pivot,
 			original,
 			drag,
-			extruded_from,
+			created_from,
 		});
 	}
 }
