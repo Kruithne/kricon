@@ -72,11 +72,11 @@ jobs:
           rustup update stable
           rustup target add ${{ matrix.target }}
 
-      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: cargo build --profile dist --locked --target ${{ matrix.target }}
 
       - run: |
           mkdir dist
-          cp target/${{ matrix.target }}/release/${{ matrix.bin }} LICENSE dist/
+          cp target/${{ matrix.target }}/dist/${{ matrix.bin }} LICENSE dist/
           if [ "${{ matrix.archive }}" = zip ]; then
             (cd dist && 7z a "../$ASSET" .)
           else
