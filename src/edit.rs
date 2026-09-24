@@ -109,7 +109,7 @@ struct Transform {
 }
 
 impl Transform {
-	fn apply(&self, pos: Pos2, cursor: Pos2) -> Pos2 {
+	fn apply(&self, pos: Pos2, cursor: Pos2, snap: bool) -> Pos2 {
 		let offset = pos - self.pivot;
 		let start = self.anchor - self.pivot;
 		let current = cursor - self.pivot;
@@ -129,7 +129,13 @@ impl Transform {
 			(false, Some(Axis::X)) | (true, Some(Axis::Y)) => Vec2::X,
 			(false, Some(Axis::Y)) | (true, Some(Axis::X)) => Vec2::Y,
 		};
-		self.pivot + offset + (moved - offset) * free
+		let target = self.pivot + moved;
+		let target = if snap && self.kind == TransformKind::Translate {
+			target.round()
+		} else {
+			target
+		};
+		pos + (target - pos) * free
 	}
 
 	fn toggle_axis(&mut self, axis: Axis) {
@@ -396,7 +402,7 @@ impl EditMode {
 				}
 
 				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
-					mesh.vertices[index] = transform.apply(pos, cursor);
+					mesh.vertices[index] = transform.apply(pos, cursor, input.modifiers.alt);
 				}
 
 				let (confirm, cancel) = if transform.drag {
