@@ -22,6 +22,7 @@ const CIRCLE_RADIUS: f32 = 1.0;
 const CIRCLE_SEGMENTS: usize = 16;
 const MIN_CIRCLE_SEGMENTS: usize = 3;
 const MAX_CIRCLE_SEGMENTS: usize = 128;
+const PRIMITIVE_SCALE_STEP: f32 = 1.1;
 const TOOL_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
 const TOOL_WIDTH: f32 = 1.5;
 const BRUSH_RADIUS: f32 = 24.0;
@@ -117,6 +118,7 @@ struct Transform {
 	drag: bool,
 	created_from: Option<Vec<usize>>,
 	axis: Option<Axis>,
+	primitive: bool,
 	segments: Option<usize>,
 	typed: String,
 }
@@ -305,7 +307,7 @@ impl EditMode {
 			MenuAction::AddRect => self.add_primitive(mesh, &rect_points(pos), pos, None),
 			MenuAction::AddCircle => self.add_primitive(
 				mesh,
-				&circle_points(pos, CIRCLE_SEGMENTS),
+				&circle_points(pos, CIRCLE_SEGMENTS, CIRCLE_RADIUS),
 				pos,
 				Some(CIRCLE_SEGMENTS),
 			),
@@ -482,14 +484,21 @@ impl EditMode {
 				}
 
 				let steps = wheel_steps(input);
-				if let Some(segments) = &mut transform.segments
+				if transform.primitive && input.modifiers.shift && steps != 0 {
+					let factor = PRIMITIVE_SCALE_STEP.powi(steps as i32);
+					for pos in &mut transform.original {
+						*pos = transform.pivot + (*pos - transform.pivot) * factor;
+					}
+				} else if let Some(segments) = &mut transform.segments
 					&& steps != 0
 				{
 					*segments = segments
 						.saturating_add_signed(steps)
 						.clamp(MIN_CIRCLE_SEGMENTS, MAX_CIRCLE_SEGMENTS);
+					let radius = transform.original[0].distance(transform.pivot);
 					mesh.remove_vertices(std::mem::take(&mut self.selection));
-					self.selection = mesh.add_loop(&circle_points(transform.pivot, *segments));
+					self.selection =
+						mesh.add_loop(&circle_points(transform.pivot, *segments, radius));
 					transform.original = self
 						.selection
 						.iter()
@@ -631,6 +640,7 @@ impl EditMode {
 		let sources = std::mem::replace(&mut self.selection, mesh.add_loop(points));
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
 		if let Operation::Transform(transform) = &mut self.operation {
+			transform.primitive = true;
 			transform.segments = segments;
 		}
 	}
@@ -675,6 +685,7 @@ impl EditMode {
 			drag,
 			created_from,
 			axis: None,
+			primitive: false,
 			segments: None,
 			typed: String::new(),
 		});
@@ -709,11 +720,11 @@ fn rect_points(center: Pos2) -> [Pos2; 4] {
 	]
 }
 
-fn circle_points(center: Pos2, segments: usize) -> Vec<Pos2> {
+fn circle_points(center: Pos2, segments: usize, radius: f32) -> Vec<Pos2> {
 	(0..segments)
 		.map(|index| {
 			let angle = TAU * index as f32 / segments as f32;
-			center + CIRCLE_RADIUS * vec2(angle.cos(), angle.sin())
+			center + radius * vec2(angle.cos(), angle.sin())
 		})
 		.collect()
 }
