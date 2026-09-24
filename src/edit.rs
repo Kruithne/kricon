@@ -106,6 +106,7 @@ struct Transform {
 	created_from: Option<Vec<usize>>,
 	axis: Option<Axis>,
 	segments: Option<usize>,
+	typed: String,
 }
 
 impl Transform {
@@ -113,7 +114,9 @@ impl Transform {
 		let offset = pos - self.pivot;
 		let start = self.anchor - self.pivot;
 		let current = cursor - self.pivot;
-		let angle = current.angle() - start.angle();
+		let angle = self
+			.typed_angle()
+			.unwrap_or(current.angle() - start.angle());
 		let moved = match (&self.kind, self.axis) {
 			(TransformKind::Translate, _) => offset + (cursor - self.anchor),
 			(TransformKind::Rotate, None) => Rot2::from_angle(angle) * offset,
@@ -136,6 +139,29 @@ impl Transform {
 			target
 		};
 		pos + (target - pos) * free
+	}
+
+	fn typed_angle(&self) -> Option<f32> {
+		if self.typed.is_empty() {
+			return None;
+		}
+
+		let (sign, digits) = match self.typed.strip_prefix('-') {
+			Some(digits) => (1.0, digits),
+			None => (-1.0, self.typed.as_str()),
+		};
+		Some(sign * digits.parse::<f32>().unwrap_or(0.0).to_radians())
+	}
+
+	fn type_char(&mut self, char: char) {
+		if char == '-' {
+			self.typed = match self.typed.strip_prefix('-') {
+				Some(digits) => digits.to_string(),
+				None => format!("-{}", self.typed),
+			};
+		} else if char.is_ascii_digit() || (char == '.' && !self.typed.contains('.')) {
+			self.typed.push(char);
+		}
 	}
 
 	fn toggle_axis(&mut self, axis: Axis) {
@@ -374,6 +400,16 @@ impl EditMode {
 					transform.toggle_axis(Axis::X);
 				} else if key(Key::Y) {
 					transform.toggle_axis(Axis::Y);
+				} else if key(Key::Backspace) {
+					transform.typed.pop();
+				}
+
+				if keyboard && transform.kind == TransformKind::Rotate {
+					for event in &input.events {
+						if let Event::Text(text) = event {
+							text.chars().for_each(|char| transform.type_char(char));
+						}
+					}
 				}
 
 				let steps: isize = input
@@ -535,6 +571,7 @@ impl EditMode {
 			created_from,
 			axis: None,
 			segments: None,
+			typed: String::new(),
 		});
 	}
 }
