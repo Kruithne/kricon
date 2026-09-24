@@ -2,7 +2,7 @@ use crate::icon;
 use crate::menu::Menu;
 use crate::mesh::Mesh;
 use crate::view::View;
-use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Stroke, Vec2};
+use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Stroke, Vec2, emath::Rot2};
 
 const VERTEX_SIZE: f32 = 6.0;
 const VERTEX_HIT_RADIUS: f32 = 8.0;
@@ -22,17 +22,46 @@ enum Operation {
 	Grab {
 		isolate: Option<usize>,
 	},
-	Translate(Translate),
+	Transform(Transform),
 	Menu {
 		pos: Pos2,
 	},
 }
 
-struct Translate {
+enum TransformKind {
+	Translate,
+	Rotate,
+	Scale,
+}
+
+struct Transform {
+	kind: TransformKind,
 	anchor: Pos2,
+	pivot: Pos2,
 	original: Vec<Pos2>,
 	drag: bool,
 	extruded_from: Option<Vec<usize>>,
+}
+
+impl Transform {
+	fn apply(&self, pos: Pos2, cursor: Pos2) -> Pos2 {
+		let start = self.anchor - self.pivot;
+		let current = cursor - self.pivot;
+		match self.kind {
+			TransformKind::Translate => pos + (cursor - self.anchor),
+			TransformKind::Rotate => {
+				self.pivot + Rot2::from_angle(current.angle() - start.angle()) * (pos - self.pivot)
+			}
+			TransformKind::Scale => {
+				let factor = if start.length() > f32::EPSILON {
+					current.length() / start.length()
+				} else {
+					1.0
+				};
+				self.pivot + (pos - self.pivot) * factor
+			}
+		}
+	}
 }
 
 pub struct EditMode {
@@ -59,16 +88,16 @@ impl EditMode {
 	}
 
 	pub fn cancel(&mut self, mesh: &mut Mesh) {
-		let Operation::Translate(translate) = std::mem::take(&mut self.operation) else {
+		let Operation::Transform(transform) = std::mem::take(&mut self.operation) else {
 			return;
 		};
 
-		match translate.extruded_from {
+		match transform.extruded_from {
 			Some(sources) => {
 				mesh.remove_vertices(std::mem::replace(&mut self.selection, sources));
 			}
 			None => {
-				for (&index, &pos) in self.selection.iter().zip(&translate.original) {
+				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
 					mesh.vertices[index] = pos;
 				}
 			}
@@ -133,7 +162,15 @@ impl EditMode {
 		match &self.operation {
 			Operation::Idle => {
 				if key(Key::G) {
-					self.begin_translate(mesh, cursor, false, None);
+					self.begin_transform(mesh, TransformKind::Translate, cursor, false, None);
+				} else if key(Key::R) {
+					self.begin_transform(mesh, TransformKind::Rotate, cursor, false, None);
+				} else if key(Key::S) {
+					self.begin_transform(mesh, TransformKind::Scale, cursor, false, None);
+				} else if key(Key::F) {
+					if let [a, b] = self.selection[..] {
+						mesh.add_edge(a, b);
+					}
 				} else if key(Key::E) {
 					self.extrude(mesh, cursor);
 				} else if key(Key::W) {
@@ -156,23 +193,22 @@ impl EditMode {
 						.pointer
 						.press_origin()
 						.map_or(cursor, |pos| view.to_world(pos));
-					self.begin_translate(mesh, anchor, true, None);
+					self.begin_transform(mesh, TransformKind::Translate, anchor, true, None);
 				}
 			}
-			Operation::Translate(translate) => {
-				let delta = cursor - translate.anchor;
-				for (&index, &pos) in self.selection.iter().zip(&translate.original) {
-					mesh.vertices[index] = pos + delta;
+			Operation::Transform(transform) => {
+				for (&index, &pos) in self.selection.iter().zip(&transform.original) {
+					mesh.vertices[index] = transform.apply(pos, cursor);
 				}
 
-				let (confirm, cancel) = if translate.drag {
+				let (confirm, cancel) = if transform.drag {
 					(
-						input.pointer.button_released(PointerButton::Secondary),
+						input.pointer.button_released(PointerButton::Secondary) || key(Key::Enter),
 						key(Key::Escape),
 					)
 				} else {
 					(
-						pressed(PointerButton::Primary),
+						pressed(PointerButton::Primary) || key(Key::Enter),
 						key(Key::Escape) || pressed(PointerButton::Secondary),
 					)
 				};
@@ -229,12 +265,13 @@ impl EditMode {
 			self.selection.push(vertex);
 		}
 
-		self.begin_translate(mesh, cursor, false, Some(sources));
+		self.begin_transform(mesh, TransformKind::Translate, cursor, false, Some(sources));
 	}
 
-	fn begin_translate(
+	fn begin_transform(
 		&mut self,
 		mesh: &Mesh,
+		kind: TransformKind,
 		anchor: Pos2,
 		drag: bool,
 		extruded_from: Option<Vec<usize>>,
@@ -243,13 +280,21 @@ impl EditMode {
 			return;
 		}
 
-		self.operation = Operation::Translate(Translate {
+		let original: Vec<Pos2> = self
+			.selection
+			.iter()
+			.map(|&index| mesh.vertices[index])
+			.collect();
+		let sum = original
+			.iter()
+			.fold(Vec2::ZERO, |sum, pos| sum + pos.to_vec2());
+		let pivot = (sum / original.len() as f32).to_pos2();
+
+		self.operation = Operation::Transform(Transform {
+			kind,
 			anchor,
-			original: self
-				.selection
-				.iter()
-				.map(|&index| mesh.vertices[index])
-				.collect(),
+			pivot,
+			original,
 			drag,
 			extruded_from,
 		});

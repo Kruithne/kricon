@@ -20,6 +20,7 @@ const GRID_SPACING: f32 = 32.0;
 const BACKGROUND_COLOR: egui::Color32 = egui::Color32::from_rgb(24, 24, 27);
 const GRID_COLOR: egui::Color32 = egui::Color32::from_rgb(44, 44, 48);
 const DEFAULT_ACCENT_COLOR: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
+const FACE_COLOR: egui::Color32 = egui::Color32::WHITE;
 const MARGIN: f32 = 12.0;
 
 struct App {
@@ -46,6 +47,19 @@ impl App {
 			painter.hline(rect.x_range(), y, stroke);
 			y += self.view.scale;
 		}
+	}
+
+	fn draw_faces(&self, painter: &egui::Painter) {
+		let mut shape = egui::Mesh::default();
+		for &vertex in &self.mesh.vertices {
+			shape.colored_vertex(self.view.to_screen(vertex), FACE_COLOR);
+		}
+
+		for [a, b, c] in self.mesh.triangles() {
+			shape.add_triangle(a as u32, b as u32, c as u32);
+		}
+
+		painter.add(shape);
 	}
 
 	fn show_accent_picker(&mut self, ctx: &egui::Context) {
@@ -81,6 +95,7 @@ impl eframe::App for App {
 		let painter = ui.painter();
 		painter.rect_filled(rect, 0.0, BACKGROUND_COLOR);
 		self.draw_grid(painter, rect);
+		self.draw_faces(painter);
 		self.edit.draw(&self.mesh, &self.view, painter, self.accent);
 
 		self.toolbar.show(ui.ctx());
