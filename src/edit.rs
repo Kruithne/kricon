@@ -57,7 +57,7 @@ const MERGE_MENU: [(Action, &str, &str); 4] = [
 		icon::BORING,
 	),
 ];
-const MAIN_MENU: [(Action, &str, &str); 24] = [
+const MAIN_MENU: [(Action, &str, &str); 25] = [
 	(Action::Translate, "Translate (G)", icon::BORING),
 	(Action::Rotate, "Rotate (R)", icon::BORING),
 	(Action::Scale, "Scale (S)", icon::BORING),
@@ -72,7 +72,7 @@ const MAIN_MENU: [(Action, &str, &str); 24] = [
 		icon::BORING,
 	),
 	(Action::Decimate, "Decimate (Alt+S)", icon::BORING),
-	(Action::Space, "Space Evenly (H)", icon::BORING),
+	(Action::Space, "Space Evenly (N)", icon::BORING),
 	(Action::Dissolve, "Dissolve (X)", icon::BORING),
 	(Action::Delete, "Delete (Del)", icon::BORING),
 	(Action::SelectAll, "Select All (A)", icon::BORING),
@@ -81,6 +81,7 @@ const MAIN_MENU: [(Action, &str, &str); 24] = [
 	(Action::Brush, "Brush Select (C)", icon::BORING),
 	(Action::BoxSelect, "Box Select (B)", icon::BORING),
 	(Action::ToggleHole, "Toggle Hole (P)", icon::BORING),
+	(Action::ToggleHoldout, "Toggle Holdout (H)", icon::BORING),
 	(Action::Palette, "Set Colour (Y)", icon::BORING),
 	(Action::CopyColor, "Copy Colour (Ctrl+Y)", icon::BORING),
 	(Action::PasteColor, "Paste Colour (Shift+Y)", icon::BORING),
@@ -117,6 +118,7 @@ enum Action {
 	Merge(MergeTarget),
 	Dissolve,
 	ToggleHole,
+	ToggleHoldout,
 	Palette,
 	CopyColor,
 	PasteColor,
@@ -833,6 +835,9 @@ impl EditMode {
 			Action::ToggleHole => self.record(mesh, |edit, mesh| {
 				mesh.toggle_hole(&edit.selection.vertices)
 			}),
+			Action::ToggleHoldout => self.record(mesh, |edit, mesh| {
+				mesh.toggle_holdout(&edit.selection.vertices)
+			}),
 			Action::Palette => {
 				if let Some(color) = mesh.face_color(&self.selection.vertices) {
 					self.operation = Operation::Palette { pos: cursor, color };
@@ -1110,8 +1115,10 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::Menu(MenuKind::Merge)
 	} else if key(Key::X) {
 		Action::Dissolve
-	} else if key(Key::H) {
+	} else if key(Key::N) {
 		Action::Space
+	} else if key(Key::H) {
+		Action::ToggleHoldout
 	} else if key(Key::P) {
 		Action::ToggleHole
 	} else if key(Key::Y) && modifiers.ctrl {

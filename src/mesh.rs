@@ -8,11 +8,13 @@ const MIN_MITER: f32 = 0.01;
 const FACE_COLOR: Color32 = Color32::WHITE;
 const CURVE_SEGMENTS: usize = 16;
 const SKEW_TOLERANCE: f32 = 0.1;
+const MIN_PIECE_AREA: f32 = 1e-6;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Layer {
 	pub id: u32,
 	pub curve: bool,
+	pub holdout: bool,
 }
 
 #[derive(Clone, Default)]
@@ -78,6 +80,7 @@ impl Mesh {
 			Layer {
 				id: layer,
 				curve: false,
+				holdout: false,
 			},
 		);
 		self.vertex_layers.push(layer);
@@ -87,7 +90,14 @@ impl Mesh {
 
 	pub fn add_loop(&mut self, points: &[Pos2], curve: bool) -> Vec<usize> {
 		let layer = self.new_layer();
-		self.layers.insert(0, Layer { id: layer, curve });
+		self.layers.insert(
+			0,
+			Layer {
+				id: layer,
+				curve,
+				holdout: false,
+			},
+		);
 
 		let offset = self.vertices.len();
 		for (index, &pos) in points.iter().enumerate() {
@@ -204,6 +214,22 @@ impl Mesh {
 		self.layers
 			.iter()
 			.any(|layer| layer.id == id && layer.curve)
+	}
+
+	pub fn toggle_holdout(&mut self, vertices: &[usize]) {
+		let ids: HashSet<u32> = vertices
+			.iter()
+			.map(|&vertex| self.vertex_layers[vertex])
+			.collect();
+		let mut targets: Vec<&mut Layer> = self
+			.layers
+			.iter_mut()
+			.filter(|layer| ids.contains(&layer.id))
+			.collect();
+		let holdout = !targets.iter().all(|layer| layer.holdout);
+		for layer in &mut targets {
+			layer.holdout = holdout;
+		}
 	}
 
 	pub fn curve_outlines(&self) -> Vec<Vec<Pos2>> {
@@ -509,14 +535,43 @@ impl Mesh {
 
 	pub fn triangles(&self) -> Vec<([Pos2; 3], Color32)> {
 		let ranks = self.ranks();
-		let mut faces = self.filled_faces();
-		faces.sort_by_key(|face| std::cmp::Reverse(ranks[&self.vertex_layers[face[0]]]));
+		let holdouts: HashSet<u32> = self
+			.layers
+			.iter()
+			.filter(|layer| layer.holdout)
+			.map(|layer| layer.id)
+			.collect();
+		let rank = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
+		let (cutters, mut faces): (Vec<_>, Vec<_>) = self
+			.filled_faces()
+			.into_iter()
+			.partition(|face| holdouts.contains(&self.vertex_layers[face[0]]));
+		faces.sort_by_key(|face| std::cmp::Reverse(rank(face)));
+
+		let cutters: Vec<(usize, [Pos2; 3])> = cutters
+			.iter()
+			.flat_map(|face| {
+				triangulate(self.outline(face))
+					.into_iter()
+					.map(move |triangle| (rank(face), triangle))
+			})
+			.collect();
 
 		let mut triangles = Vec::new();
 		for face in faces {
 			let color = self.color_of(&face_key(&face));
+			let above: Vec<&[Pos2; 3]> = cutters
+				.iter()
+				.filter(|(cutter, _)| *cutter < rank(&face))
+				.map(|(_, triangle)| triangle)
+				.collect();
+
 			for triangle in triangulate(self.outline(&face)) {
-				triangles.push((triangle, color));
+				for piece in subtract(triangle.to_vec(), &above) {
+					for index in 1..piece.len() - 1 {
+						triangles.push(([piece[0], piece[index], piece[index + 1]], color));
+					}
+				}
 			}
 		}
 		triangles
@@ -715,8 +770,9 @@ impl Mesh {
 				.iter()
 				.position(|layer| layer.id == *owner)
 				.unwrap();
-			let curve = self.layers[position].curve;
-			self.layers.insert(position + 1, Layer { id, curve });
+			let Layer { curve, holdout, .. } = self.layers[position];
+			self.layers
+				.insert(position + 1, Layer { id, curve, holdout });
 			*owner = id;
 		}
 
@@ -897,14 +953,67 @@ impl Mesh {
 	}
 
 	fn signed_area(&self, face: &[usize]) -> f32 {
-		let mut area = 0.0;
-		for (index, &vertex) in face.iter().enumerate() {
-			let a = self.vertices[vertex];
-			let b = self.vertices[face[(index + 1) % face.len()]];
-			area += a.x * b.y - b.x * a.y;
-		}
-		area / 2.0
+		let points: Vec<Pos2> = face.iter().map(|&vertex| self.vertices[vertex]).collect();
+		area(&points)
 	}
+}
+
+fn area(polygon: &[Pos2]) -> f32 {
+	let mut area = 0.0;
+	for (index, &a) in polygon.iter().enumerate() {
+		let b = polygon[(index + 1) % polygon.len()];
+		area += a.x * b.y - b.x * a.y;
+	}
+	area / 2.0
+}
+
+fn subtract(polygon: Vec<Pos2>, cutters: &[&[Pos2; 3]]) -> Vec<Vec<Pos2>> {
+	let mut pieces = vec![polygon];
+	for cutter in cutters {
+		let bounds = Rect::from_points(&cutter[..]);
+		let mut kept = Vec::new();
+		for piece in pieces {
+			if !bounds.intersects(Rect::from_points(&piece)) {
+				kept.push(piece);
+				continue;
+			}
+
+			let mut inside = piece;
+			for index in 0..3 {
+				let [within, outside] = split(&inside, cutter[index], cutter[(index + 1) % 3]);
+				if area(&outside) > MIN_PIECE_AREA {
+					kept.push(outside);
+				}
+				if area(&within) <= MIN_PIECE_AREA {
+					break;
+				}
+				inside = within;
+			}
+		}
+		pieces = kept;
+	}
+	pieces
+}
+
+fn split(polygon: &[Pos2], a: Pos2, b: Pos2) -> [Vec<Pos2>; 2] {
+	let side = |p: Pos2| cross(b - a, p - a);
+	let mut halves = [Vec::new(), Vec::new()];
+	for (index, &p) in polygon.iter().enumerate() {
+		let q = polygon[(index + 1) % polygon.len()];
+		let (sp, sq) = (side(p), side(q));
+		if sp >= 0.0 {
+			halves[0].push(p);
+		}
+		if sp <= 0.0 {
+			halves[1].push(p);
+		}
+		if sp * sq < 0.0 {
+			let point = p.lerp(q, sp / (sp - sq));
+			halves[0].push(point);
+			halves[1].push(point);
+		}
+	}
+	halves
 }
 
 pub fn encloses(polygon: &[Pos2], pos: Pos2) -> bool {

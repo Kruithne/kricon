@@ -12,7 +12,7 @@ kricon is a purpose-built icon editing utility.
 | `Shift` + `S` | Subdivides the edges between the selected vertices. |
 | `Ctrl` + `S` | Subdivides the edges between the selected vertices along a curve fitted to the neighbouring vertices. |
 | `Alt` + `S` | Decimates the selected vertices. Removes every second vertex along each chain of selected vertices, the reverse of one subdivision. |
-| `H` | Spaces the selected vertices evenly along each chain of selected vertices. The ends of each chain stay in place. |
+| `N` | Spaces the selected vertices evenly along each chain of selected vertices. The ends of each chain stay in place. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
 | `Alt` | Snaps the translated selection to the grid while held. |
 | `Shift` | Snaps the translated vertices to the X or Y of a nearby vertex while held. A guide line shows each snap. |
@@ -35,6 +35,7 @@ kricon is a purpose-built icon editing utility.
 | `M` | Opens the merge menu. |
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
 | `P` | Toggles a hole in the faces enclosed by the selected vertices. |
+| `H` | Toggles holdout on the layers of the selected vertices. A holdout cuts through all faces below it in the layer order. Images are not cut. |
 | `Y` | Opens a colour palette at the cursor to set the colour of the selected faces. `Enter` or `Left Click` outside confirms, `Escape` cancels. |
 | `Ctrl` + `Y` | Copies the colour of the selected face to the clipboard as a hex code. |
 | `Shift` + `Y` | Sets the colour of the selected faces from a `#XXXXXX` or `#XXX` hex code in the clipboard. |

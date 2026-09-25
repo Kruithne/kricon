@@ -70,7 +70,7 @@ impl Layers {
 
 				let mut rows = Vec::new();
 				let mut dragged = None;
-				for (index, &Layer { id: layer, curve }) in mesh.layers.iter().enumerate() {
+				for (index, &Layer { id, curve, holdout }) in mesh.layers.iter().enumerate() {
 					let (rect, response, color) = panel::item(
 						ui,
 						egui::vec2(PANEL_WIDTH, panel::ITEM_HEIGHT),
@@ -78,7 +78,7 @@ impl Layers {
 						egui::Sense::click_and_drag(),
 					);
 					if response.clicked() {
-						clicked = Some(layer);
+						clicked = Some(id);
 					}
 					if response.dragged() || response.drag_stopped() {
 						dragged = Some((index, response.drag_stopped()));
@@ -88,15 +88,20 @@ impl Layers {
 						rect.left_center() + egui::vec2(panel::PADDING + INDICATOR_SIZE / 2.0, 0.0),
 						egui::Vec2::splat(INDICATOR_SIZE),
 					);
-					match selected.get(&layer) {
-						Some(count) if *count == sizes[&layer] => {
+					match selected.get(&id) {
+						Some(count) if *count == sizes[&id] => {
 							ui.painter().rect_filled(indicator, 0.0, accent);
 						}
 						Some(_) => draw_partial(ui.painter(), indicator, accent),
 						None => {}
 					}
 					let kind = if curve { "Curve" } else { "Shape" };
-					panel::paint_label(ui, indicator, &format!("{kind} {layer}"), color);
+					let label = if holdout {
+						format!("{kind} {id} (Holdout)")
+					} else {
+						format!("{kind} {id}")
+					};
+					panel::paint_label(ui, indicator, &label, color);
 					rows.push(rect);
 				}
 
