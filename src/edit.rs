@@ -554,6 +554,8 @@ impl EditMode {
 					self.record(mesh, |edit, mesh| {
 						mesh.dissolve(std::mem::take(&mut edit.selection.vertices));
 					});
+				} else if key(Key::H) {
+					self.record(mesh, |edit, mesh| mesh.space(&edit.selection.vertices));
 				} else if key(Key::P) {
 					self.record(mesh, |edit, mesh| {
 						mesh.toggle_hole(&edit.selection.vertices)

@@ -12,6 +12,7 @@ kricon is a purpose-built icon editing utility.
 | `Shift` + `S` | Subdivides the edges between the selected vertices. |
 | `Ctrl` + `S` | Subdivides the edges between the selected vertices along a curve fitted to the neighbouring vertices. |
 | `Alt` + `S` | Decimates the selected vertices. Removes every second vertex along each chain of selected vertices, the reverse of one subdivision. |
+| `H` | Spaces the selected vertices evenly along each chain of selected vertices. The ends of each chain stay in place. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
 | `Alt` | Snaps the translated selection to the grid while held. |
 | `Shift` | Snaps the translated vertices to the X or Y of a nearby vertex while held. A guide line shows each snap. |

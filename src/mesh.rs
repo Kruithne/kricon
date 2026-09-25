@@ -357,6 +357,46 @@ impl Mesh {
 		kept
 	}
 
+	pub fn space(&mut self, vertices: &[usize]) {
+		let neighbours = self.neighbours();
+		let interior = |vertex: usize| {
+			vertices.contains(&vertex)
+				&& neighbours[vertex].len() == 2
+				&& neighbours[vertex]
+					.iter()
+					.all(|next| vertices.contains(next))
+		};
+
+		let mut visited = HashSet::new();
+		let mut walk = |mut prev: usize, mut current: usize| {
+			let mut chain = vec![prev];
+			while interior(current) && visited.insert(current) {
+				chain.push(current);
+				let next = neighbours[current].iter().find(|&&next| next != prev);
+				(prev, current) = (current, *next.unwrap());
+			}
+			chain.push(current);
+			chain
+		};
+
+		let mut chains = Vec::new();
+		for &anchor in vertices.iter().filter(|&&vertex| !interior(vertex)) {
+			for &next in &neighbours[anchor] {
+				chains.push(walk(anchor, next));
+			}
+		}
+
+		for &start in vertices {
+			if interior(start) {
+				chains.push(walk(neighbours[start][0], start).split_off(1));
+			}
+		}
+
+		for chain in chains.iter().filter(|chain| chain.len() > 2) {
+			self.distribute(chain);
+		}
+	}
+
 	pub fn toggle_hole(&mut self, vertices: &[usize]) {
 		let faces = self.enclosed_faces(vertices);
 		let fill = faces.iter().all(|key| self.holes.contains(key));
@@ -642,6 +682,32 @@ impl Mesh {
 		}
 
 		(components, count)
+	}
+
+	fn distribute(&mut self, chain: &[usize]) {
+		let points: Vec<Pos2> = chain.iter().map(|&vertex| self.vertices[vertex]).collect();
+		let lengths: Vec<f32> = points
+			.windows(2)
+			.map(|pair| pair[0].distance(pair[1]))
+			.collect();
+		let step = lengths.iter().sum::<f32>() / lengths.len() as f32;
+
+		let mut segment = 0;
+		let mut start = 0.0;
+		for (index, &vertex) in chain.iter().enumerate().take(chain.len() - 1).skip(1) {
+			let target = step * index as f32;
+			while segment < lengths.len() - 1 && start + lengths[segment] < target {
+				start += lengths[segment];
+				segment += 1;
+			}
+
+			let t = if lengths[segment] > 0.0 {
+				(target - start) / lengths[segment]
+			} else {
+				0.0
+			};
+			self.vertices[vertex] = points[segment].lerp(points[segment + 1], t);
+		}
 	}
 
 	fn neighbours(&self) -> Vec<Vec<usize>> {
