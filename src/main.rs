@@ -34,7 +34,6 @@ const GRID_SPACING: f32 = 32.0;
 const BACKGROUND_COLOR: egui::Color32 = egui::Color32::from_rgb(24, 24, 27);
 const GRID_COLOR: egui::Color32 = egui::Color32::from_rgb(44, 44, 48);
 const ACCENT_COLOR: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
-const DEFAULT_FACE_OPACITY: f32 = 0.1;
 const MAX_SPACING: f32 = 8.0;
 const SPACING_STEP: f32 = 0.5;
 const MARGIN: f32 = 12.0;
@@ -142,10 +141,7 @@ impl App {
 
 		if !self.workspace.is_busy() {
 			self.restoring = false;
-			if self.workspace.path != self.settings.workspace {
-				self.settings.workspace = self.workspace.path.clone();
-				self.settings.save();
-			}
+			self.sync_settings(ctx);
 		}
 
 		if self.workspace.autosave_due(ctx)
@@ -157,6 +153,24 @@ impl App {
 		}
 
 		self.update_title(ctx);
+	}
+
+	fn sync_settings(&mut self, ctx: &egui::Context) {
+		if ctx.input(|input| input.pointer.any_down()) {
+			return;
+		}
+
+		let settings = Settings {
+			workspace: self.workspace.path.clone(),
+			face_opacity: self.face_opacity,
+			spacing: self.spacing.distance,
+			show_images: self.edit.show_images,
+			show_outlines: self.edit.show_outlines,
+		};
+		if settings != self.settings {
+			self.settings = settings;
+			self.settings.save();
+		}
 	}
 
 	fn is_dirty(&self) -> bool {
@@ -209,8 +223,6 @@ impl App {
 		let meta = Meta {
 			offset: self.view.offset,
 			scale: self.view.scale,
-			face_opacity: self.face_opacity,
-			spacing: self.spacing.distance,
 		};
 		self.workspace.save(
 			ctx,
@@ -234,8 +246,6 @@ impl App {
 		if let Some(meta) = loaded.meta {
 			self.view.offset = meta.offset;
 			self.view.scale = meta.scale;
-			self.face_opacity = meta.face_opacity;
-			self.spacing.distance = meta.spacing;
 		}
 	}
 
@@ -441,16 +451,21 @@ fn main() -> eframe::Result {
 			cc.egui_ctx
 				.all_styles_mut(|style| style.animation_time = 0.0);
 			let settings = Settings::load();
+			let mut edit = EditMode::new();
+			edit.show_images = settings.show_images;
+			edit.show_outlines = settings.show_outlines;
+			let mut spacing = Spacing::default();
+			spacing.distance = settings.spacing.clamp(0.0, MAX_SPACING);
 			Ok(Box::new(App {
 				view: View {
 					offset: egui::Vec2::ZERO,
 					scale: GRID_SPACING,
 				},
 				mesh: Mesh::default(),
-				edit: EditMode::new(),
+				edit,
 				layers: Layers::new(),
-				face_opacity: DEFAULT_FACE_OPACITY,
-				spacing: Spacing::default(),
+				face_opacity: settings.face_opacity.clamp(0.0, 1.0),
+				spacing,
 				loader: Loader::new(),
 				menu_icon: Icon::new(icon::MENU),
 				images_icon: Icon::new(icon::BORING),

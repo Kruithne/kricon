@@ -25,8 +25,6 @@ const HOLDOUT_FLAG: u8 = 2;
 pub struct Meta {
 	pub offset: Vec2,
 	pub scale: f32,
-	pub face_opacity: f32,
-	pub spacing: f32,
 }
 
 pub struct Loaded {
@@ -173,8 +171,6 @@ fn encode(mesh: &Mesh, meta: &Meta) -> Vec<u8> {
 		writer.f32(meta.offset.x);
 		writer.f32(meta.offset.y);
 		writer.f32(meta.scale);
-		writer.f32(meta.face_opacity);
-		writer.f32(meta.spacing);
 	});
 	writer.section(VERTICES, |writer| {
 		writer.u32(mesh.vertices.len() as u32);
@@ -245,8 +241,6 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 				meta = Some(Meta {
 					offset: vec2(section.f32()?, section.f32()?),
 					scale: section.f32()?,
-					face_opacity: section.f32()?,
-					spacing: section.f32()?,
 				})
 			}
 			VERTICES => mesh.vertices = section.list(8, Reader::pos)?,
