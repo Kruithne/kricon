@@ -41,6 +41,8 @@ struct App {
 	spacing: Spacing,
 	loader: Loader,
 	menu_icon: Icon,
+	images_icon: Icon,
+	outlines_icon: Icon,
 }
 
 impl App {
@@ -90,24 +92,7 @@ impl App {
 		let open = self.edit.menu_open();
 		let response = egui::Area::new(egui::Id::new("menu_button"))
 			.anchor(egui::Align2::LEFT_TOP, [MARGIN, MARGIN])
-			.show(ctx, |ui| {
-				panel::frame()
-					.show(ui, |ui| {
-						let (rect, response, tint) = panel::item(
-							ui,
-							egui::Vec2::splat(panel::BUTTON_SIZE),
-							open,
-							egui::Sense::click(),
-						);
-						let icon_rect = egui::Rect::from_center_size(
-							rect.center(),
-							egui::Vec2::splat(BUTTON_ICON_SIZE),
-						);
-						panel::paint_icon(ui, &mut self.menu_icon, icon_rect, tint);
-						response.clicked()
-					})
-					.inner
-			});
+			.show(ctx, |ui| button(ui, &mut self.menu_icon, open).clicked());
 
 		if response.inner {
 			let anchor =
@@ -141,6 +126,22 @@ impl App {
 							.range(0.0..=1.0)
 							.speed(1.0 / ui.spacing().slider_width),
 					);
+
+					let images = &mut self.edit.show_images;
+					if button(ui, &mut self.images_icon, *images)
+						.on_hover_text("Toggle Images")
+						.clicked()
+					{
+						*images = !*images;
+					}
+
+					let outlines = &mut self.edit.show_outlines;
+					if button(ui, &mut self.outlines_icon, *outlines)
+						.on_hover_text("Toggle Outlines")
+						.clicked()
+					{
+						*outlines = !*outlines;
+					}
 				});
 			});
 	}
@@ -167,8 +168,10 @@ impl eframe::App for App {
 		let painter = ui.painter();
 		painter.rect_filled(rect, 0.0, BACKGROUND_COLOR);
 		self.draw_grid(painter, rect);
-		for image in &self.mesh.images {
-			image.draw(&self.view, painter);
+		if self.edit.show_images {
+			for image in &self.mesh.images {
+				image.draw(&self.view, painter);
+			}
 		}
 		self.draw_faces(painter);
 		self.edit
@@ -185,6 +188,23 @@ impl eframe::App for App {
 			.show(ui.ctx(), &mut self.mesh, &mut self.edit, ACCENT_COLOR);
 		self.show_sliders(ui.ctx());
 	}
+}
+
+fn button(ui: &mut egui::Ui, icon: &mut Icon, active: bool) -> egui::Response {
+	panel::frame()
+		.show(ui, |ui| {
+			let (rect, response, tint) = panel::item(
+				ui,
+				egui::Vec2::splat(panel::BUTTON_SIZE),
+				active,
+				egui::Sense::click(),
+			);
+			let icon_rect =
+				egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(BUTTON_ICON_SIZE));
+			panel::paint_icon(ui, icon, icon_rect, tint);
+			response
+		})
+		.inner
 }
 
 fn slider(ui: &mut egui::Ui, value: &mut f32, max: f32) -> egui::Response {
@@ -245,6 +265,8 @@ fn main() -> eframe::Result {
 				spacing: Spacing::default(),
 				loader: Loader::new(),
 				menu_icon: Icon::new(icon::MENU),
+				images_icon: Icon::new(icon::BORING),
+				outlines_icon: Icon::new(icon::BORING),
 			}))
 		}),
 	)

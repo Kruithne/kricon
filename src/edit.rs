@@ -269,6 +269,8 @@ pub struct Selection {
 }
 
 pub struct EditMode {
+	pub show_images: bool,
+	pub show_outlines: bool,
 	selection: Selection,
 	operation: Operation,
 	create_menu: Menu<Action>,
@@ -284,6 +286,8 @@ pub struct EditMode {
 impl EditMode {
 	pub fn new() -> Self {
 		Self {
+			show_images: true,
+			show_outlines: true,
 			selection: Selection::default(),
 			operation: Operation::Idle,
 			create_menu: Menu::new("Create", icon::BORING).items(&CREATE_MENU),
@@ -496,26 +500,28 @@ impl EditMode {
 
 		let color = |is_selected: bool| if is_selected { SELECTED_COLOR } else { accent };
 
-		for &[a, b] in &mesh.edges {
-			let points = [
-				view.to_screen(mesh.vertices[a]),
-				view.to_screen(mesh.vertices[b]),
-			];
-			let color = color(selected[a] && selected[b]);
-			let color = if mesh.is_curve(a) {
-				color.gamma_multiply(CAGE_OPACITY)
-			} else {
-				color
-			};
-			painter.line_segment(points, Stroke::new(EDGE_WIDTH, color));
-		}
+		if self.show_outlines {
+			for &[a, b] in &mesh.edges {
+				let points = [
+					view.to_screen(mesh.vertices[a]),
+					view.to_screen(mesh.vertices[b]),
+				];
+				let color = color(selected[a] && selected[b]);
+				let color = if mesh.is_curve(a) {
+					color.gamma_multiply(CAGE_OPACITY)
+				} else {
+					color
+				};
+				painter.line_segment(points, Stroke::new(EDGE_WIDTH, color));
+			}
 
-		for outline in mesh.curve_outlines() {
-			let points = outline.into_iter().map(|pos| view.to_screen(pos)).collect();
-			painter.add(egui::Shape::closed_line(
-				points,
-				Stroke::new(EDGE_WIDTH, accent),
-			));
+			for outline in mesh.curve_outlines() {
+				let points = outline.into_iter().map(|pos| view.to_screen(pos)).collect();
+				painter.add(egui::Shape::closed_line(
+					points,
+					Stroke::new(EDGE_WIDTH, accent),
+				));
+			}
 		}
 
 		if let Operation::Transform(transform) = &self.operation {
@@ -556,6 +562,10 @@ impl EditMode {
 			);
 		}
 
+		if !self.show_outlines {
+			return;
+		}
+
 		for (index, &vertex) in mesh.vertices.iter().enumerate() {
 			let rect = Rect::from_center_size(view.to_screen(vertex), Vec2::splat(VERTEX_SIZE));
 			painter.rect_filled(rect, 0.0, color(selected[index]));
@@ -581,12 +591,14 @@ impl EditMode {
 					return Some((action, cursor));
 				} else if hovered && pressed(PointerButton::Secondary) {
 					let radius = VERTEX_HIT_RADIUS / view.scale;
-					let hit = mesh.nearest_vertex(cursor, radius);
+					let outlines = self.show_outlines;
+					let hit = mesh.nearest_vertex(cursor, radius).filter(|_| outlines);
 					if hit.is_none()
-						&& let Some(face) = mesh.face_at(cursor)
+						&& outlines && let Some(face) = mesh.face_at(cursor)
 					{
 						self.select_face(face, input.modifiers.shift);
 					} else if hit.is_none()
+						&& self.show_images
 						&& let Some(image) = mesh.image_at(cursor)
 					{
 						self.select_image(image, input.modifiers.shift);
@@ -979,6 +991,16 @@ impl EditMode {
 	}
 
 	fn settle_selection(&mut self) {
+		let editing = matches!(
+			self.operation,
+			Operation::Transform(_) | Operation::Palette { .. }
+		);
+		if !self.show_outlines && !editing {
+			self.selection.vertices.clear();
+		}
+		if !self.show_images {
+			self.selection.images.clear();
+		}
 		if !self.selection.vertices.is_empty() {
 			self.selection.images.clear();
 		}
