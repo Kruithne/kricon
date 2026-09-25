@@ -1,4 +1,4 @@
-use crate::geometry::{area, cross, encloses};
+use crate::geometry::{Segment, area, cross, encloses};
 use crate::svg::{self, Point};
 use eframe::egui::{Color32, Pos2, Vec2, pos2};
 
@@ -45,28 +45,7 @@ struct Style {
 	even_odd: bool,
 }
 
-#[derive(Clone, Copy)]
-enum Segment {
-	Line([Pos2; 2]),
-	Cubic([Pos2; 4]),
-}
-
 impl Segment {
-	fn points(&self) -> &[Pos2] {
-		match self {
-			Self::Line(points) => points,
-			Self::Cubic(points) => points,
-		}
-	}
-
-	fn start(&self) -> Pos2 {
-		self.points()[0]
-	}
-
-	fn end(&self) -> Pos2 {
-		self.points()[self.points().len() - 1]
-	}
-
 	fn start_tangent(&self) -> Vec2 {
 		let points = self.points();
 		points[1..]

@@ -1,5 +1,5 @@
-use crate::export::{Fill, Segment};
-use crate::geometry::{area, cross, encloses, turn};
+use crate::export::Fill;
+use crate::geometry::{Segment, area, cross, encloses, turn};
 use crate::history::Splice;
 use crate::images::Image;
 use crate::import::Shape;
