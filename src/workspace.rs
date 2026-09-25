@@ -1,11 +1,13 @@
 use crate::images::{self, Decoded};
 use crate::mesh::{Layer, Mesh};
 use eframe::egui::{self, Color32, Pos2, Vec2, pos2, vec2};
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{fs, io, thread};
 
 pub const EXTENSION: &str = "kri";
 const MAGIC: &[u8; 4] = b"KRI\0";
@@ -136,7 +138,10 @@ fn poll<T>(receiver: &mut Option<Receiver<io::Result<T>>>) -> Option<io::Result<
 
 fn write(path: &Path, mesh: &Mesh, meta: &Meta) -> io::Result<()> {
 	let temp = path.with_extension(format!("{EXTENSION}.tmp"));
-	fs::write(&temp, encode(mesh, meta))?;
+	let mut file = File::create(&temp)?;
+	file.write_all(&encode(mesh, meta))?;
+	file.sync_all()?;
+	drop(file);
 	fs::rename(&temp, path)
 }
 
