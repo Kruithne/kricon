@@ -271,14 +271,14 @@ impl Transform {
 		Some(sign * digits.parse::<f32>().unwrap_or(0.0).to_radians())
 	}
 
-	fn type_char(&mut self, char: char) {
-		if char == '-' {
+	fn type_char(&mut self, symbol: char) {
+		if symbol == '-' {
 			self.typed = match self.typed.strip_prefix('-') {
 				Some(digits) => digits.to_string(),
 				None => format!("-{}", self.typed),
 			};
-		} else if char.is_ascii_digit() || (char == '.' && !self.typed.contains('.')) {
-			self.typed.push(char);
+		} else if symbol.is_ascii_digit() || (symbol == '.' && !self.typed.contains('.')) {
+			self.typed.push(symbol);
 		}
 	}
 
@@ -713,7 +713,7 @@ impl EditMode {
 				if keyboard && transform.kind == TransformKind::Rotate {
 					for event in &input.events {
 						if let Event::Text(text) = event {
-							text.chars().for_each(|char| transform.type_char(char));
+							text.chars().for_each(|symbol| transform.type_char(symbol));
 						}
 					}
 				}

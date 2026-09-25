@@ -814,7 +814,7 @@ impl Mesh {
 			*sizes.entry(layer).or_default() += 1;
 		}
 
-		let key = |layer: u32| (std::cmp::Reverse(sizes[&layer]), ranks[&layer]);
+		let key = |layer: u32| (Reverse(sizes[&layer]), ranks[&layer]);
 		let mut owners: Vec<Option<u32>> = vec![None; count];
 		for (&component, &layer) in components.iter().zip(&self.vertex_layers) {
 			let owner = &mut owners[component];
