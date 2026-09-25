@@ -57,7 +57,7 @@ const MERGE_MENU: [(Action, &str, &str); 4] = [
 		icon::BORING,
 	),
 ];
-const MAIN_MENU: [(Action, &str, &str); 23] = [
+const MAIN_MENU: [(Action, &str, &str); 24] = [
 	(Action::Translate, "Translate (G)", icon::BORING),
 	(Action::Rotate, "Rotate (R)", icon::BORING),
 	(Action::Scale, "Scale (S)", icon::BORING),
@@ -75,6 +75,7 @@ const MAIN_MENU: [(Action, &str, &str); 23] = [
 	(Action::Space, "Space Evenly (H)", icon::BORING),
 	(Action::Dissolve, "Dissolve (X)", icon::BORING),
 	(Action::Delete, "Delete (Del)", icon::BORING),
+	(Action::SelectAll, "Select All (A)", icon::BORING),
 	(Action::SelectLinked, "Select Linked (L)", icon::BORING),
 	(Action::SelectSameEdge, "Select Same Edge (T)", icon::BORING),
 	(Action::Brush, "Brush Select (C)", icon::BORING),
@@ -106,6 +107,7 @@ enum Action {
 	AddRect,
 	AddCircle,
 	AddCurve,
+	SelectAll,
 	SelectLinked,
 	SelectSameEdge,
 	Brush,
@@ -799,6 +801,13 @@ impl EditMode {
 				Some(CURVE_POINTS),
 				true,
 			),
+			Action::SelectAll => {
+				let empty = self.selection.vertices.is_empty() && self.selection.images.is_empty();
+				self.selection = Selection::default();
+				if empty {
+					self.selection.vertices = (0..mesh.vertices.len()).collect();
+				}
+			}
 			Action::SelectLinked => {
 				if self.selection.vertices.is_empty() {
 					let radius = LINK_PICK_RADIUS / view.scale;
@@ -1087,6 +1096,8 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::Inset
 	} else if key(Key::V) {
 		Action::AddVertex
+	} else if key(Key::A) {
+		Action::SelectAll
 	} else if key(Key::L) {
 		Action::SelectLinked
 	} else if key(Key::T) {

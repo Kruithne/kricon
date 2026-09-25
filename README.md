@@ -26,6 +26,7 @@ kricon is a purpose-built icon editing utility.
 | `Right Click` | Selects the vertex, face or image at the cursor. |
 | `C` | Toggles brush selection. `Scroll` sets the size, `Left Click` selects and `Middle Click` deselects. |
 | `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
+| `A` | Selects all vertices. Deselects everything if something is already selected. |
 | `L` | Selects all linked vertices to the currently selected. |
 | `T` | Selects the edges that continue the path of the selected edges. For example, select one edge of an inset circle to select the full inner circle. |
 | `Q` | Opens the menu of all actions at the cursor. The button in the top left also opens it. |
