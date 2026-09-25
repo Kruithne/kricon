@@ -1253,15 +1253,16 @@ impl EditMode {
 fn key_action(input: &egui::InputState) -> Option<Action> {
 	let key = |key: Key| input.key_pressed(key);
 	let modifiers = input.modifiers;
+	let plain = |code: Key| key(code) && modifiers.is_none();
 	let action = if input.events.contains(&Event::Copy) {
 		Action::CopySvg
 	} else if key(Key::Z) && modifiers.ctrl {
 		Action::Undo
 	} else if key(Key::R) && modifiers.ctrl {
 		Action::Redo
-	} else if key(Key::G) {
+	} else if plain(Key::G) {
 		Action::Translate
-	} else if key(Key::R) {
+	} else if plain(Key::R) {
 		Action::Rotate
 	} else if key(Key::S) && modifiers.alt {
 		Action::SubdivideCurve
@@ -1269,53 +1270,53 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::File(FileAction::Save)
 	} else if key(Key::S) && modifiers.shift {
 		Action::Subdivide
-	} else if key(Key::S) {
+	} else if plain(Key::S) {
 		Action::Scale
-	} else if key(Key::F) {
+	} else if plain(Key::F) {
 		Action::Connect
 	} else if key(Key::D) && modifiers.shift {
 		Action::Duplicate
-	} else if key(Key::D) {
+	} else if plain(Key::D) {
 		Action::Decimate
-	} else if key(Key::E) {
+	} else if plain(Key::E) {
 		Action::Extrude
-	} else if key(Key::I) {
+	} else if plain(Key::I) {
 		Action::Inset
-	} else if key(Key::V) {
+	} else if plain(Key::V) {
 		Action::AddVertex
-	} else if key(Key::A) {
+	} else if plain(Key::A) {
 		Action::SelectAll
-	} else if key(Key::L) {
+	} else if plain(Key::L) {
 		Action::SelectLinked
-	} else if key(Key::T) {
+	} else if plain(Key::T) {
 		Action::SelectSameEdge
-	} else if key(Key::Q) {
+	} else if plain(Key::Q) {
 		Action::MainMenu
-	} else if key(Key::W) {
+	} else if plain(Key::W) {
 		Action::Menu(MenuKind::Create)
-	} else if key(Key::M) {
+	} else if plain(Key::M) {
 		Action::Menu(MenuKind::Merge)
-	} else if key(Key::X) {
+	} else if plain(Key::X) {
 		Action::Dissolve
-	} else if key(Key::N) {
+	} else if plain(Key::N) {
 		Action::Space
-	} else if key(Key::H) {
+	} else if plain(Key::H) {
 		Action::ToggleHoldout
-	} else if key(Key::P) {
+	} else if plain(Key::P) {
 		Action::ToggleHole
 	} else if key(Key::Y) && modifiers.ctrl {
 		Action::CopyColor
 	} else if key(Key::Y) && modifiers.shift {
 		Action::PasteColor
-	} else if key(Key::Y) && modifiers.is_none() {
+	} else if plain(Key::Y) {
 		Action::Palette
-	} else if key(Key::C) {
+	} else if plain(Key::C) {
 		Action::Brush
-	} else if key(Key::B) {
+	} else if plain(Key::B) {
 		Action::BoxSelect
-	} else if key(Key::K) {
+	} else if plain(Key::K) {
 		Action::Magnet
-	} else if key(Key::Delete) {
+	} else if plain(Key::Delete) {
 		Action::Delete
 	} else {
 		return None;
