@@ -15,7 +15,7 @@ use eframe::egui::{
 use std::f32::consts::TAU;
 
 const VERTEX_SIZE: f32 = 6.0;
-const VERTEX_HIT_RADIUS: f32 = 8.0;
+const VERTEX_HIT_RADIUS: f32 = 16.0;
 const ALIGN_RADIUS: f32 = 8.0;
 const LINK_PICK_RADIUS: f32 = 32.0;
 const EDGE_WIDTH: f32 = 1.5;
