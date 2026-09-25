@@ -37,6 +37,7 @@ const BRUSH_RADIUS: f32 = 24.0;
 const BRUSH_STEP: f32 = 4.0;
 const MIN_BRUSH_RADIUS: f32 = 4.0;
 const MAX_BRUSH_RADIUS: f32 = 256.0;
+const MAGNET_RADIUS: f32 = 64.0;
 const CREATE_MENU: [(Action, &str, &str); 4] = [
 	(Action::AddVertex, "Add Vertex (V)", icon::BORING),
 	(Action::AddRect, "Add Rect", icon::BORING),
@@ -57,7 +58,7 @@ const MERGE_MENU: [(Action, &str, &str); 4] = [
 		icon::BORING,
 	),
 ];
-const MAIN_MENU: [(Action, &str, &str); 25] = [
+const MAIN_MENU: [(Action, &str, &str); 26] = [
 	(Action::Translate, "Translate (G)", icon::BORING),
 	(Action::Rotate, "Rotate (R)", icon::BORING),
 	(Action::Scale, "Scale (S)", icon::BORING),
@@ -80,6 +81,7 @@ const MAIN_MENU: [(Action, &str, &str); 25] = [
 	(Action::SelectSameEdge, "Select Same Edge (T)", icon::BORING),
 	(Action::Brush, "Brush Select (C)", icon::BORING),
 	(Action::BoxSelect, "Box Select (B)", icon::BORING),
+	(Action::Magnet, "Toggle Magnet (K)", icon::BORING),
 	(Action::ToggleHole, "Toggle Hole (P)", icon::BORING),
 	(Action::ToggleHoldout, "Toggle Holdout (H)", icon::BORING),
 	(Action::Palette, "Set Colour (Y)", icon::BORING),
@@ -113,6 +115,7 @@ enum Action {
 	SelectSameEdge,
 	Brush,
 	BoxSelect,
+	Magnet,
 	Menu(MenuKind),
 	MainMenu,
 	Merge(MergeTarget),
@@ -190,6 +193,7 @@ struct Transform {
 	segments: Option<usize>,
 	typed: String,
 	guides: [Option<Pos2>; 2],
+	magnet: Option<Vec<(usize, Pos2)>>,
 }
 
 impl Transform {
@@ -271,6 +275,8 @@ pub struct EditMode {
 	merge_menu: Menu<Action>,
 	main_menu: Menu<Action>,
 	brush_radius: f32,
+	magnet: bool,
+	magnet_radius: f32,
 	history: History,
 	paste_pending: bool,
 }
@@ -295,6 +301,8 @@ impl EditMode {
 				)
 				.items(&MAIN_MENU),
 			brush_radius: BRUSH_RADIUS,
+			magnet: false,
+			magnet_radius: MAGNET_RADIUS,
 			history: History::default(),
 			paste_pending: false,
 		}
@@ -346,6 +354,9 @@ impl EditMode {
 			self.operation,
 			Operation::Transform(Transform {
 				segments: Some(_),
+				..
+			}) | Operation::Transform(Transform {
+				magnet: Some(_),
 				..
 			}) | Operation::Brush
 		)
@@ -502,10 +513,17 @@ impl EditMode {
 			}
 		}
 
-		if let Operation::Brush = self.operation
+		let radius = match &self.operation {
+			Operation::Brush => Some(self.brush_radius),
+			Operation::Transform(Transform {
+				magnet: Some(_), ..
+			}) => Some(self.magnet_radius),
+			_ => None,
+		};
+		if let Some(radius) = radius
 			&& let Some(pos) = painter.ctx().pointer_hover_pos()
 		{
-			painter.circle_stroke(pos, self.brush_radius, Stroke::new(TOOL_WIDTH, TOOL_COLOR));
+			painter.circle_stroke(pos, radius, Stroke::new(TOOL_WIDTH, TOOL_COLOR));
 		}
 
 		if let Operation::BoxSelect { start: Some(start) } = self.operation
@@ -576,6 +594,7 @@ impl EditMode {
 						true,
 						self.selection.vertices.clone(),
 					);
+					self.attach_magnet(mesh);
 				}
 			}
 			Operation::Transform(transform) => {
@@ -601,6 +620,9 @@ impl EditMode {
 					for pos in &mut transform.original {
 						*pos = transform.pivot + (*pos - transform.pivot) * factor;
 					}
+				} else if transform.magnet.is_some() && steps != 0 {
+					self.magnet_radius = (self.magnet_radius + steps as f32 * BRUSH_STEP)
+						.clamp(MIN_BRUSH_RADIUS, MAX_BRUSH_RADIUS);
 				} else if let Some(segments) = &mut transform.segments
 					&& steps != 0
 				{
@@ -641,6 +663,13 @@ impl EditMode {
 				} else {
 					[None; 2]
 				};
+
+				attract(
+					mesh,
+					&self.selection.vertices,
+					transform,
+					self.magnet_radius / view.scale,
+				);
 
 				let (confirm, cancel) = if transform.drag {
 					(
@@ -745,13 +774,16 @@ impl EditMode {
 		match action {
 			Action::Undo => self.history.undo(mesh, &mut self.selection),
 			Action::Redo => self.history.redo(mesh, &mut self.selection),
-			Action::Translate => self.begin_transform(
-				mesh,
-				TransformKind::Translate,
-				cursor,
-				false,
-				self.selection.vertices.clone(),
-			),
+			Action::Translate => {
+				self.begin_transform(
+					mesh,
+					TransformKind::Translate,
+					cursor,
+					false,
+					self.selection.vertices.clone(),
+				);
+				self.attach_magnet(mesh);
+			}
 			Action::Rotate => self.begin_transform(
 				mesh,
 				TransformKind::Rotate,
@@ -824,6 +856,7 @@ impl EditMode {
 			}
 			Action::Brush => self.operation = Operation::Brush,
 			Action::BoxSelect => self.operation = Operation::BoxSelect { start: None },
+			Action::Magnet => self.magnet = !self.magnet,
 			Action::Menu(kind) => self.operation = Operation::Menu { pos: cursor, kind },
 			Action::MainMenu => self.open_menu(view.to_screen(cursor)),
 			Action::Merge(target) => {
@@ -1068,7 +1101,26 @@ impl EditMode {
 			segments: None,
 			typed: String::new(),
 			guides: [None; 2],
+			magnet: None,
 		});
+	}
+
+	fn attach_magnet(&mut self, mesh: &Mesh) {
+		let Operation::Transform(transform) = &mut self.operation else {
+			return;
+		};
+		if !self.magnet || self.selection.vertices.is_empty() {
+			return;
+		}
+
+		let rest = mesh
+			.vertices
+			.iter()
+			.enumerate()
+			.filter(|(index, _)| !self.selection.vertices.contains(index))
+			.map(|(index, &pos)| (index, pos))
+			.collect();
+		transform.magnet = Some(rest);
 	}
 }
 
@@ -1131,6 +1183,8 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::Brush
 	} else if key(Key::B) {
 		Action::BoxSelect
+	} else if key(Key::K) {
+		Action::Magnet
 	} else if key(Key::Delete) {
 		Action::Delete
 	} else {
@@ -1207,6 +1261,28 @@ fn align(mesh: &mut Mesh, selection: &[usize], free: Vec2, radius: f32) -> [Opti
 		mesh.vertices[vertex] += vec2(offset[0], offset[1]);
 	}
 	best.map(|best| best.map(|(_, target)| target))
+}
+
+fn attract(mesh: &mut Mesh, selection: &[usize], transform: &Transform, radius: f32) {
+	let Some(rest) = &transform.magnet else {
+		return;
+	};
+
+	for &(vertex, pos) in rest {
+		let nearest = selection
+			.iter()
+			.zip(&transform.original)
+			.map(|(&selected, &origin)| (origin.distance(pos), mesh.vertices[selected] - origin))
+			.min_by(|a, b| a.0.total_cmp(&b.0));
+		let offset = match nearest {
+			Some((distance, offset)) if distance < radius => {
+				let weight = 1.0 - distance / radius;
+				offset * weight * weight * (3.0 - 2.0 * weight)
+			}
+			_ => Vec2::ZERO,
+		};
+		mesh.vertices[vertex] = pos + offset;
+	}
 }
 
 fn axis_line(painter: &egui::Painter, axis: Axis, pos: Pos2) {

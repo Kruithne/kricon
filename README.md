@@ -25,6 +25,7 @@ kricon is a purpose-built icon editing utility.
 | `V` | Adds a vertex at the cursor. |
 | `Right Click` | Selects the vertex, face or image at the cursor. |
 | `C` | Toggles brush selection. `Scroll` sets the size, `Left Click` selects and `Middle Click` deselects. |
+| `K` | Toggles magnet mode. Translated vertices pull the nearby vertices with them. The pull fades out to the edge of the circle at the cursor. `Scroll` sets the size of the circle. |
 | `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
 | `A` | Selects all vertices. Deselects everything if something is already selected. |
 | `L` | Selects all linked vertices to the currently selected. |
