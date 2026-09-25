@@ -17,23 +17,6 @@ pub struct Fill {
 }
 
 impl Segment {
-	fn is_flat(&self) -> bool {
-		let Self::Cubic([a, b, c, d]) = *self else {
-			return true;
-		};
-
-		let chord = d - a;
-		let length = chord.length();
-		let distance = |p: Pos2| {
-			if length > f32::EPSILON {
-				cross(chord, p - a).abs() / length
-			} else {
-				p.distance(a)
-			}
-		};
-		distance(b).max(distance(c)) <= FLATNESS
-	}
-
 	fn winding(&self, pos: Pos2) -> i32 {
 		let hull = self.hull();
 		if pos.y < hull.min.y || pos.y >= hull.max.y || pos.x >= hull.max.x {
@@ -239,7 +222,7 @@ fn intersect(
 		return;
 	}
 
-	let (flat_a, flat_b) = (a.is_flat(), b.is_flat());
+	let (flat_a, flat_b) = (a.flatness() <= FLATNESS, b.flatness() <= FLATNESS);
 	if (flat_a && flat_b) || depth == MAX_DEPTH {
 		let lerp = |(from, to): (f32, f32), t: f32| from + (to - from) * t;
 		for (s, u, pos) in line_hits(a.start(), a.end(), b.start(), b.end()) {

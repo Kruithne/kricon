@@ -87,6 +87,23 @@ impl Segment {
 		Rect::from_points(&points)
 	}
 
+	pub fn flatness(&self) -> f32 {
+		let Self::Cubic([a, b, c, d]) = *self else {
+			return 0.0;
+		};
+
+		let chord = d - a;
+		let length = chord.length();
+		let distance = |p: Pos2| {
+			if length > f32::EPSILON {
+				cross(chord, p - a).abs() / length
+			} else {
+				p.distance(a)
+			}
+		};
+		distance(b).max(distance(c))
+	}
+
 	pub fn extrema(&self, axis: usize) -> Vec<f32> {
 		let Self::Cubic(points) = self else {
 			return Vec::new();

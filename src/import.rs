@@ -1,4 +1,4 @@
-use crate::geometry::{Segment, area, cross, encloses};
+use crate::geometry::{Segment, area, encloses};
 use crate::svg::{self, Point};
 use eframe::egui::{Color32, Pos2, Vec2, pos2};
 
@@ -448,33 +448,20 @@ fn flatten(contour: &[Segment]) -> Vec<Pos2> {
 	let mut outline = Vec::new();
 	for segment in contour {
 		outline.push(segment.start());
-		if let Segment::Cubic(points) = *segment {
-			subdivide(points, 0, &mut outline);
-		}
+		subdivide(*segment, 0, &mut outline);
 	}
 	outline
 }
 
-fn subdivide([a, b, c, d]: [Pos2; 4], depth: u32, outline: &mut Vec<Pos2>) {
-	let chord = d - a;
-	let length = chord.length();
-	let distance = |p: Pos2| {
-		if length > f32::EPSILON {
-			cross(chord, p - a).abs() / length
-		} else {
-			p.distance(a)
-		}
-	};
-	if distance(b).max(distance(c)) <= TOLERANCE || depth == MAX_DEPTH {
+fn subdivide(segment: Segment, depth: u32, outline: &mut Vec<Pos2>) {
+	if segment.flatness() <= TOLERANCE || depth == MAX_DEPTH {
 		return;
 	}
 
-	let (ab, bc, cd) = (a.lerp(b, 0.5), b.lerp(c, 0.5), c.lerp(d, 0.5));
-	let (abc, bcd) = (ab.lerp(bc, 0.5), bc.lerp(cd, 0.5));
-	let middle = abc.lerp(bcd, 0.5);
-	subdivide([a, ab, abc, middle], depth + 1, outline);
-	outline.push(middle);
-	subdivide([middle, bcd, cd, d], depth + 1, outline);
+	let (left, right) = segment.split(0.5);
+	subdivide(left, depth + 1, outline);
+	outline.push(left.end());
+	subdivide(right, depth + 1, outline);
 }
 
 fn dedup(outline: &[Pos2]) -> Vec<Pos2> {
