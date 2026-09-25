@@ -406,6 +406,10 @@ impl EditMode {
 						false,
 						self.selection.clone(),
 					);
+				} else if key(Key::S) && input.modifiers.alt {
+					self.record(mesh, |edit, mesh| {
+						edit.selection = mesh.decimate(&edit.selection);
+					});
 				} else if key(Key::S) && (input.modifiers.shift || input.modifiers.ctrl) {
 					self.record(mesh, |edit, mesh| {
 						let midpoints = mesh.subdivide(&edit.selection, input.modifiers.ctrl);

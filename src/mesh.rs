@@ -271,6 +271,52 @@ impl Mesh {
 		midpoints
 	}
 
+	pub fn decimate(&mut self, vertices: &[usize]) -> Vec<usize> {
+		let neighbours = self.neighbours();
+		let interior = |vertex: usize| {
+			vertices.contains(&vertex)
+				&& neighbours[vertex].len() == 2
+				&& neighbours[vertex]
+					.iter()
+					.all(|next| vertices.contains(next))
+		};
+
+		let mut visited = HashSet::new();
+		let mut walk = |mut prev: usize, mut current: usize| {
+			let mut chain = Vec::new();
+			while interior(current) && visited.insert(current) {
+				chain.push(current);
+				let next = neighbours[current].iter().find(|&&next| next != prev);
+				(prev, current) = (current, *next.unwrap());
+			}
+			chain
+		};
+
+		let mut removed = Vec::new();
+		for &anchor in vertices.iter().filter(|&&vertex| !interior(vertex)) {
+			for &next in &neighbours[anchor] {
+				removed.extend(walk(anchor, next).into_iter().step_by(2));
+			}
+		}
+
+		for &start in vertices {
+			if interior(start) {
+				let chain = walk(neighbours[start][0], start);
+				if chain.len() > 4 {
+					removed.extend(chain.into_iter().skip(1).step_by(2));
+				}
+			}
+		}
+
+		let kept = vertices
+			.iter()
+			.filter(|vertex| !removed.contains(vertex))
+			.map(|&vertex| vertex - removed.iter().filter(|&&index| index < vertex).count())
+			.collect();
+		self.dissolve(removed);
+		kept
+	}
+
 	pub fn toggle_hole(&mut self, vertices: &[usize]) {
 		let faces: Vec<Vec<usize>> = self
 			.faces()
