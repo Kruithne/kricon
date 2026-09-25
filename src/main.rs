@@ -3,6 +3,7 @@
 mod edit;
 mod history;
 mod icon;
+mod images;
 mod layers;
 mod menu;
 mod mesh;
@@ -12,6 +13,7 @@ mod view;
 
 use edit::EditMode;
 use eframe::egui;
+use images::{Image, Loader};
 use layers::Layers;
 use mesh::Mesh;
 use view::View;
@@ -31,6 +33,7 @@ struct App {
 	edit: EditMode,
 	layers: Layers,
 	face_opacity: f32,
+	loader: Loader,
 }
 
 impl App {
@@ -65,6 +68,17 @@ impl App {
 		painter.add(shape);
 	}
 
+	fn load_images(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+		let dropped = ctx.input(|input| input.raw.dropped_files.clone());
+		self.loader.load(ctx, dropped);
+
+		for pixels in self.loader.receive() {
+			let pos = ctx.pointer_latest_pos().unwrap_or(rect.center());
+			let image = Image::new(ctx, pixels, self.view.to_world(pos));
+			self.edit.add_image(&mut self.mesh, image);
+		}
+	}
+
 	fn show_face_opacity(&mut self, ctx: &egui::Context) {
 		egui::Area::new(egui::Id::new("face_opacity"))
 			.anchor(egui::Align2::RIGHT_BOTTOM, [-MARGIN, -MARGIN])
@@ -97,10 +111,14 @@ impl eframe::App for App {
 		);
 
 		self.edit.update(&mut self.mesh, &self.view, &response);
+		self.load_images(ui.ctx(), rect);
 
 		let painter = ui.painter();
 		painter.rect_filled(rect, 0.0, BACKGROUND_COLOR);
 		self.draw_grid(painter, rect);
+		for image in &self.mesh.images {
+			image.draw(&self.view, painter);
+		}
 		self.draw_faces(painter);
 		self.edit
 			.draw(&self.mesh, &self.view, painter, ACCENT_COLOR);
@@ -164,6 +182,7 @@ fn main() -> eframe::Result {
 				edit: EditMode::new(),
 				layers: Layers::new(),
 				face_opacity: DEFAULT_FACE_OPACITY,
+				loader: Loader::new(),
 			}))
 		}),
 	)

@@ -1,3 +1,4 @@
+use crate::edit::Selection;
 use crate::mesh::{Change, Mesh};
 use std::collections::VecDeque;
 
@@ -42,8 +43,8 @@ impl<T: Clone + PartialEq> Splice<T> {
 
 struct Entry {
 	change: Change,
-	before: Vec<usize>,
-	after: Vec<usize>,
+	before: Selection,
+	after: Selection,
 }
 
 #[derive(Default)]
@@ -54,7 +55,7 @@ pub struct History {
 }
 
 impl History {
-	pub fn commit(&mut self, mesh: &Mesh, before: Vec<usize>, after: &[usize]) {
+	pub fn commit(&mut self, mesh: &Mesh, before: Selection, after: &Selection) {
 		let change = self.checkpoint.diff(mesh);
 		if change.is_empty() {
 			return;
@@ -68,7 +69,7 @@ impl History {
 		self.undo.push_back(Entry {
 			change,
 			before,
-			after: after.to_vec(),
+			after: after.clone(),
 		});
 		self.redo.clear();
 	}
@@ -77,7 +78,7 @@ impl History {
 		mesh.clone_from(&self.checkpoint);
 	}
 
-	pub fn undo(&mut self, mesh: &mut Mesh, selection: &mut Vec<usize>) {
+	pub fn undo(&mut self, mesh: &mut Mesh, selection: &mut Selection) {
 		let Some(entry) = self.undo.pop_back() else {
 			return;
 		};
@@ -88,7 +89,7 @@ impl History {
 		self.redo.push(entry);
 	}
 
-	pub fn redo(&mut self, mesh: &mut Mesh, selection: &mut Vec<usize>) {
+	pub fn redo(&mut self, mesh: &mut Mesh, selection: &mut Selection) {
 		let Some(entry) = self.redo.pop() else {
 			return;
 		};

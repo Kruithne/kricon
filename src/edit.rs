@@ -1,5 +1,6 @@
 use crate::history::History;
 use crate::icon;
+use crate::images::Image;
 use crate::menu::Menu;
 use crate::mesh::Mesh;
 use crate::view::View;
@@ -85,7 +86,7 @@ enum Operation {
 	#[default]
 	Idle,
 	Grab {
-		isolate: Option<usize>,
+		isolate: Option<Selection>,
 	},
 	Transform(Transform),
 	Menu {
@@ -118,7 +119,7 @@ struct Transform {
 	pivot: Pos2,
 	original: Vec<Pos2>,
 	drag: bool,
-	before: Vec<usize>,
+	before: Selection,
 	axis: Option<Axis>,
 	primitive: bool,
 	segments: Option<usize>,
@@ -192,8 +193,14 @@ impl Transform {
 	}
 }
 
+#[derive(Clone, Default)]
+pub struct Selection {
+	vertices: Vec<usize>,
+	images: Vec<usize>,
+}
+
 pub struct EditMode {
-	selection: Vec<usize>,
+	selection: Selection,
 	operation: Operation,
 	create_menu: Menu<MenuAction>,
 	merge_menu: Menu<MenuAction>,
@@ -204,7 +211,7 @@ pub struct EditMode {
 impl EditMode {
 	pub fn new() -> Self {
 		Self {
-			selection: Vec::new(),
+			selection: Selection::default(),
 			operation: Operation::Idle,
 			create_menu: Menu::new("Create", icon::BORING, &CREATE_MENU),
 			merge_menu: Menu::new("Merge", icon::BORING, &MERGE_MENU),
@@ -219,6 +226,7 @@ impl EditMode {
 		response
 			.ctx
 			.input(|input| self.handle_input(mesh, view, input, hovered, keyboard));
+		self.settle_selection();
 	}
 
 	pub fn cancel(&mut self, mesh: &mut Mesh) {
@@ -250,7 +258,7 @@ impl EditMode {
 	}
 
 	pub fn selection(&self) -> &[usize] {
-		&self.selection
+		&self.selection.vertices
 	}
 
 	pub fn select_layer(&mut self, mesh: &mut Mesh, layer: u32, shift: bool) {
@@ -260,16 +268,31 @@ impl EditMode {
 		let deselect = shift
 			&& self
 				.selection
+				.vertices
 				.iter()
 				.any(|&vertex| mesh.layer(vertex) == layer);
 		if !shift {
-			self.selection.clear();
+			self.selection.vertices.clear();
 		}
 
-		self.selection.retain(|&vertex| mesh.layer(vertex) != layer);
+		self.selection
+			.vertices
+			.retain(|&vertex| mesh.layer(vertex) != layer);
 		if !deselect {
-			self.selection.extend(mesh.layer_vertices(layer));
+			self.selection.vertices.extend(mesh.layer_vertices(layer));
 		}
+		self.settle_selection();
+	}
+
+	pub fn add_image(&mut self, mesh: &mut Mesh, image: Image) {
+		self.cancel(mesh);
+		self.record(mesh, |edit, mesh| {
+			edit.selection = Selection {
+				vertices: Vec::new(),
+				images: vec![mesh.images.len()],
+			};
+			mesh.images.push(image);
+		});
 	}
 
 	pub fn show_menu(
@@ -295,7 +318,7 @@ impl EditMode {
 		match action {
 			MenuAction::AddVertex => {
 				self.record(mesh, |edit, mesh| {
-					edit.selection = vec![mesh.add_vertex(pos)]
+					edit.selection.vertices = vec![mesh.add_vertex(pos)]
 				});
 			}
 			MenuAction::AddRect => self.add_primitive(mesh, &rect_points(pos), pos, None),
@@ -309,12 +332,23 @@ impl EditMode {
 				self.record(mesh, |edit, mesh| edit.merge(mesh, target, pos));
 			}
 		}
+		self.settle_selection();
 	}
 
 	pub fn draw(&self, mesh: &Mesh, view: &View, painter: &egui::Painter, accent: Color32) {
 		let mut selected = vec![false; mesh.vertices.len()];
-		for &index in &self.selection {
+		for &index in &self.selection.vertices {
 			selected[index] = true;
+		}
+
+		for &index in &self.selection.images {
+			let points = mesh.images[index]
+				.corners
+				.map(|corner| view.to_screen(corner));
+			painter.add(egui::Shape::closed_line(
+				points.to_vec(),
+				Stroke::new(EDGE_WIDTH, SELECTED_COLOR),
+			));
 		}
 
 		let color = |is_selected: bool| if is_selected { SELECTED_COLOR } else { accent };
@@ -394,7 +428,7 @@ impl EditMode {
 						TransformKind::Translate,
 						cursor,
 						false,
-						self.selection.clone(),
+						self.selection.vertices.clone(),
 					);
 				} else if key(Key::R) {
 					self.begin_transform(
@@ -402,15 +436,16 @@ impl EditMode {
 						TransformKind::Rotate,
 						cursor,
 						false,
-						self.selection.clone(),
+						self.selection.vertices.clone(),
 					);
 				} else if key(Key::S) && input.modifiers.alt {
 					self.record(mesh, |edit, mesh| {
-						edit.selection = mesh.decimate(&edit.selection);
+						edit.selection.vertices = mesh.decimate(&edit.selection.vertices);
 					});
 				} else if key(Key::S) && (input.modifiers.shift || input.modifiers.ctrl) {
 					self.record(mesh, |edit, mesh| {
-						let midpoints = mesh.subdivide(&edit.selection, input.modifiers.ctrl);
+						let midpoints =
+							mesh.subdivide(&edit.selection.vertices, input.modifiers.ctrl);
 						edit.extend_selection(midpoints);
 					});
 				} else if key(Key::S) {
@@ -419,10 +454,10 @@ impl EditMode {
 						TransformKind::Scale,
 						cursor,
 						false,
-						self.selection.clone(),
+						self.selection.vertices.clone(),
 					);
 				} else if key(Key::F) {
-					if let [a, b] = self.selection[..] {
+					if let [a, b] = self.selection.vertices[..] {
 						self.record(mesh, |_, mesh| mesh.add_edge(a, b));
 					}
 				} else if key(Key::D) && input.modifiers.shift {
@@ -433,14 +468,16 @@ impl EditMode {
 					self.inset(mesh, cursor);
 				} else if key(Key::V) {
 					self.record(mesh, |edit, mesh| {
-						edit.selection = vec![mesh.add_vertex(cursor)]
+						edit.selection.vertices = vec![mesh.add_vertex(cursor)]
 					});
 				} else if key(Key::L) {
-					if self.selection.is_empty() {
+					if self.selection.vertices.is_empty() {
 						let radius = LINK_PICK_RADIUS / view.scale;
-						self.selection.extend(mesh.nearest_vertex(cursor, radius));
+						self.selection
+							.vertices
+							.extend(mesh.nearest_vertex(cursor, radius));
 					}
-					self.extend_selection(mesh.linked(&self.selection));
+					self.extend_selection(mesh.linked(&self.selection.vertices));
 				} else if key(Key::W) {
 					self.operation = Operation::Menu {
 						pos: cursor,
@@ -453,17 +490,20 @@ impl EditMode {
 					};
 				} else if key(Key::X) {
 					self.record(mesh, |edit, mesh| {
-						mesh.dissolve(std::mem::take(&mut edit.selection));
+						mesh.dissolve(std::mem::take(&mut edit.selection.vertices));
 					});
 				} else if key(Key::P) {
-					self.record(mesh, |edit, mesh| mesh.toggle_hole(&edit.selection));
+					self.record(mesh, |edit, mesh| {
+						mesh.toggle_hole(&edit.selection.vertices)
+					});
 				} else if key(Key::C) {
 					self.operation = Operation::Brush;
 				} else if key(Key::B) {
 					self.operation = Operation::BoxSelect { start: None };
 				} else if key(Key::Delete) {
 					self.record(mesh, |edit, mesh| {
-						mesh.remove_vertices(std::mem::take(&mut edit.selection));
+						mesh.remove_vertices(std::mem::take(&mut edit.selection.vertices));
+						mesh.remove_images(std::mem::take(&mut edit.selection.images));
 					});
 				} else if hovered && pressed(PointerButton::Secondary) {
 					let radius = VERTEX_HIT_RADIUS / view.scale;
@@ -472,6 +512,10 @@ impl EditMode {
 						&& let Some(face) = mesh.face_at(cursor)
 					{
 						self.select_face(face, input.modifiers.shift);
+					} else if hit.is_none()
+						&& let Some(image) = mesh.image_at(cursor)
+					{
+						self.select_image(image, input.modifiers.shift);
 					} else {
 						self.select(hit, input.modifiers.shift);
 					}
@@ -479,8 +523,8 @@ impl EditMode {
 			}
 			Operation::Grab { isolate } => {
 				if !input.pointer.button_down(PointerButton::Secondary) {
-					if let Some(index) = *isolate {
-						self.selection = vec![index];
+					if let Some(isolate) = isolate.take() {
+						self.selection = isolate;
 					}
 					self.operation = Operation::Idle;
 				} else if input.pointer.is_decidedly_dragging() {
@@ -493,7 +537,7 @@ impl EditMode {
 						TransformKind::Translate,
 						anchor,
 						true,
-						self.selection.clone(),
+						self.selection.vertices.clone(),
 					);
 				}
 			}
@@ -527,22 +571,24 @@ impl EditMode {
 						.saturating_add_signed(steps)
 						.clamp(MIN_CIRCLE_SEGMENTS, MAX_CIRCLE_SEGMENTS);
 					let radius = transform.original[0].distance(transform.pivot);
-					mesh.remove_vertices(std::mem::take(&mut self.selection));
-					self.selection =
+					mesh.remove_vertices(std::mem::take(&mut self.selection.vertices));
+					self.selection.vertices =
 						mesh.add_loop(&circle_points(transform.pivot, *segments, radius));
 					transform.original = self
 						.selection
+						.vertices
 						.iter()
 						.map(|&index| mesh.vertices[index])
 						.collect();
 				}
 
-				for (index, (&vertex, &pos)) in
-					self.selection.iter().zip(&transform.original).enumerate()
-				{
-					mesh.vertices[vertex] =
-						transform.apply(index, pos, cursor, input.modifiers.alt);
-				}
+				transform_selection(
+					mesh,
+					&self.selection,
+					transform,
+					cursor,
+					input.modifiers.alt,
+				);
 
 				transform.guides = if input.modifiers.shift
 					&& !transform.primitive
@@ -550,7 +596,7 @@ impl EditMode {
 				{
 					align(
 						mesh,
-						&self.selection,
+						&self.selection.vertices,
 						transform.free(),
 						ALIGN_RADIUS / view.scale,
 					)
@@ -590,7 +636,9 @@ impl EditMode {
 					self.extend_selection(inside);
 				} else if down(PointerButton::Middle) {
 					let inside: Vec<usize> = inside.collect();
-					self.selection.retain(|vertex| !inside.contains(vertex));
+					self.selection
+						.vertices
+						.retain(|vertex| !inside.contains(vertex));
 				}
 			}
 			Operation::BoxSelect { start } => {
@@ -632,37 +680,73 @@ impl EditMode {
 	fn select(&mut self, hit: Option<usize>, shift: bool) {
 		let Some(index) = hit else {
 			if !shift {
-				self.selection.clear();
+				self.selection = Selection::default();
 			}
 			return;
 		};
 
 		let position = self
 			.selection
+			.vertices
 			.iter()
 			.position(|&selected| selected == index);
 		match (position, shift) {
 			(Some(position), true) => {
-				self.selection.remove(position);
+				self.selection.vertices.remove(position);
 				return;
 			}
-			(None, true) => self.selection.push(index),
-			(None, false) => self.selection = vec![index],
+			(None, true) => self.selection.vertices.push(index),
+			(None, false) => self.selection.vertices = vec![index],
 			(Some(_), false) => {}
 		}
 
-		let isolate = (!shift && self.selection.len() > 1).then_some(index);
+		let isolate = (!shift && self.selection.vertices.len() > 1).then(|| Selection {
+			vertices: vec![index],
+			images: Vec::new(),
+		});
 		self.operation = Operation::Grab { isolate };
 	}
 
+	fn select_image(&mut self, index: usize, shift: bool) {
+		self.selection.vertices.clear();
+		let images = &mut self.selection.images;
+		match (images.iter().position(|&image| image == index), shift) {
+			(Some(position), true) => {
+				images.remove(position);
+				return;
+			}
+			(None, true) => images.push(index),
+			(None, false) => *images = vec![index],
+			(Some(_), false) => {}
+		}
+
+		let isolate = (!shift && images.len() > 1).then(|| Selection {
+			vertices: Vec::new(),
+			images: vec![index],
+		});
+		self.operation = Operation::Grab { isolate };
+	}
+
+	fn settle_selection(&mut self) {
+		if !self.selection.vertices.is_empty() {
+			self.selection.images.clear();
+		}
+	}
+
 	fn select_face(&mut self, face: Vec<usize>, shift: bool) {
-		if shift && face.iter().all(|vertex| self.selection.contains(vertex)) {
-			self.selection.retain(|vertex| !face.contains(vertex));
+		if shift
+			&& face
+				.iter()
+				.all(|vertex| self.selection.vertices.contains(vertex))
+		{
+			self.selection
+				.vertices
+				.retain(|vertex| !face.contains(vertex));
 			return;
 		}
 
 		if !shift {
-			self.selection.clear();
+			self.selection.vertices.clear();
 		}
 
 		self.extend_selection(face);
@@ -671,8 +755,8 @@ impl EditMode {
 
 	fn extend_selection(&mut self, vertices: impl IntoIterator<Item = usize>) {
 		for vertex in vertices {
-			if !self.selection.contains(&vertex) {
-				self.selection.push(vertex);
+			if !self.selection.vertices.contains(&vertex) {
+				self.selection.vertices.push(vertex);
 			}
 		}
 	}
@@ -683,22 +767,22 @@ impl EditMode {
 		cursor: Pos2,
 		create: fn(&mut Mesh, &[usize]) -> Vec<usize>,
 	) {
-		if self.selection.is_empty() {
+		if self.selection.vertices.is_empty() {
 			return;
 		}
 
-		let sources = std::mem::take(&mut self.selection);
-		self.selection = create(mesh, &sources);
+		let sources = std::mem::take(&mut self.selection.vertices);
+		self.selection.vertices = create(mesh, &sources);
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, sources);
 	}
 
 	fn inset(&mut self, mesh: &mut Mesh, cursor: Pos2) {
-		let (inner, directions) = mesh.inset(&self.selection);
+		let (inner, directions) = mesh.inset(&self.selection.vertices);
 		if inner.is_empty() {
 			return;
 		}
 
-		let sources = std::mem::replace(&mut self.selection, inner);
+		let sources = std::mem::replace(&mut self.selection.vertices, inner);
 		self.begin_transform(
 			mesh,
 			TransformKind::Inset(directions),
@@ -715,7 +799,7 @@ impl EditMode {
 		cursor: Pos2,
 		segments: Option<usize>,
 	) {
-		let sources = std::mem::replace(&mut self.selection, mesh.add_loop(points));
+		let sources = std::mem::replace(&mut self.selection.vertices, mesh.add_loop(points));
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, sources);
 		if let Operation::Transform(transform) = &mut self.operation {
 			transform.primitive = true;
@@ -724,17 +808,25 @@ impl EditMode {
 	}
 
 	fn merge(&mut self, mesh: &mut Mesh, target: MergeTarget, cursor: Pos2) {
-		let (Some(&first), Some(&last)) = (self.selection.first(), self.selection.last()) else {
+		let (Some(&first), Some(&last)) = (
+			self.selection.vertices.first(),
+			self.selection.vertices.last(),
+		) else {
 			return;
 		};
 
 		let pos = match target {
 			MergeTarget::Last => mesh.vertices[last],
-			MergeTarget::Center => center(mesh, &self.selection),
+			MergeTarget::Center => center(
+				self.selection
+					.vertices
+					.iter()
+					.map(|&index| mesh.vertices[index]),
+			),
 			MergeTarget::First => mesh.vertices[first],
 			MergeTarget::Cursor => cursor,
 		};
-		self.selection = vec![mesh.merge(&self.selection, pos)];
+		self.selection.vertices = vec![mesh.merge(&self.selection.vertices, pos)];
 	}
 
 	fn begin_transform(
@@ -745,23 +837,32 @@ impl EditMode {
 		drag: bool,
 		before: Vec<usize>,
 	) {
-		if self.selection.is_empty() {
+		self.settle_selection();
+		let vertices = self
+			.selection
+			.vertices
+			.iter()
+			.map(|&index| mesh.vertices[index]);
+		let corners = self
+			.selection
+			.images
+			.iter()
+			.flat_map(|&index| mesh.images[index].corners);
+		let original: Vec<Pos2> = vertices.chain(corners).collect();
+		if original.is_empty() {
 			return;
 		}
-
-		let original: Vec<Pos2> = self
-			.selection
-			.iter()
-			.map(|&index| mesh.vertices[index])
-			.collect();
 
 		self.operation = Operation::Transform(Transform {
 			kind,
 			anchor,
-			pivot: center(mesh, &self.selection),
+			pivot: center(original.iter().copied()),
 			original,
 			drag,
-			before,
+			before: Selection {
+				vertices: before,
+				images: self.selection.images.clone(),
+			},
 			axis: None,
 			primitive: false,
 			segments: None,
@@ -771,11 +872,41 @@ impl EditMode {
 	}
 }
 
-fn center(mesh: &Mesh, vertices: &[usize]) -> Pos2 {
-	let sum = vertices.iter().fold(Vec2::ZERO, |sum, &index| {
-		sum + mesh.vertices[index].to_vec2()
-	});
-	(sum / vertices.len() as f32).to_pos2()
+fn center(points: impl ExactSizeIterator<Item = Pos2>) -> Pos2 {
+	let count = points.len() as f32;
+	let sum = points.fold(Vec2::ZERO, |sum, pos| sum + pos.to_vec2());
+	(sum / count).to_pos2()
+}
+
+fn transform_selection(
+	mesh: &mut Mesh,
+	selection: &Selection,
+	transform: &Transform,
+	cursor: Pos2,
+	snap: bool,
+) {
+	let count = selection.vertices.len();
+	let mut positions = transform
+		.original
+		.iter()
+		.enumerate()
+		.map(|(index, &pos)| transform.apply(index, pos, cursor, snap && index < count));
+
+	for (&vertex, pos) in selection.vertices.iter().zip(&mut positions) {
+		mesh.vertices[vertex] = pos;
+	}
+
+	for &image in &selection.images {
+		let corners = &mut mesh.images[image].corners;
+		for (corner, pos) in corners.iter_mut().zip(&mut positions) {
+			*corner = pos;
+		}
+
+		if snap && transform.kind == TransformKind::Translate {
+			let offset = (corners[0].round() - corners[0]) * transform.free();
+			corners.iter_mut().for_each(|corner| *corner += offset);
+		}
+	}
 }
 
 fn align(mesh: &mut Mesh, selection: &[usize], free: Vec2, radius: f32) -> [Option<Pos2>; 2] {

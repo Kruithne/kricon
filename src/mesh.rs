@@ -1,4 +1,5 @@
 use crate::history::Splice;
+use crate::images::Image;
 use eframe::egui::{Pos2, Rect, Vec2, vec2};
 use std::collections::{HashMap, HashSet};
 
@@ -11,6 +12,7 @@ pub struct Mesh {
 	pub layers: Vec<u32>,
 	vertex_layers: Vec<u32>,
 	holes: Vec<Vec<usize>>,
+	pub images: Vec<Image>,
 }
 
 pub struct Change {
@@ -19,6 +21,7 @@ pub struct Change {
 	layers: Splice<u32>,
 	vertex_layers: Splice<u32>,
 	holes: Splice<Vec<usize>>,
+	images: Splice<Image>,
 }
 
 impl Change {
@@ -28,6 +31,7 @@ impl Change {
 			&& self.layers.is_empty()
 			&& self.vertex_layers.is_empty()
 			&& self.holes.is_empty()
+			&& self.images.is_empty()
 	}
 }
 
@@ -39,6 +43,7 @@ impl Mesh {
 			layers: Splice::new(&self.layers, &after.layers),
 			vertex_layers: Splice::new(&self.vertex_layers, &after.vertex_layers),
 			holes: Splice::new(&self.holes, &after.holes),
+			images: Splice::new(&self.images, &after.images),
 		}
 	}
 
@@ -48,6 +53,7 @@ impl Mesh {
 		change.layers.apply(&mut self.layers, forward);
 		change.vertex_layers.apply(&mut self.vertex_layers, forward);
 		change.holes.apply(&mut self.holes, forward);
+		change.images.apply(&mut self.images, forward);
 	}
 
 	pub fn add_vertex(&mut self, pos: Pos2) -> usize {
@@ -377,6 +383,17 @@ impl Mesh {
 			.collect()
 	}
 
+	pub fn image_at(&self, pos: Pos2) -> Option<usize> {
+		self.images.iter().rposition(|image| image.contains(pos))
+	}
+
+	pub fn remove_images(&mut self, mut indices: Vec<usize>) {
+		indices.sort_unstable();
+		for index in indices.into_iter().rev() {
+			self.images.remove(index);
+		}
+	}
+
 	pub fn remove_vertices(&mut self, mut indices: Vec<usize>) {
 		indices.sort_unstable();
 		for index in indices.into_iter().rev() {
@@ -635,17 +652,8 @@ impl Mesh {
 	}
 
 	fn encloses(&self, face: &[usize], pos: Pos2) -> bool {
-		let mut inside = false;
-		for (index, &vertex) in face.iter().enumerate() {
-			let a = self.vertices[vertex];
-			let b = self.vertices[face[(index + 1) % face.len()]];
-			if (a.y > pos.y) != (b.y > pos.y)
-				&& pos.x < a.x + (pos.y - a.y) * (b.x - a.x) / (b.y - a.y)
-			{
-				inside = !inside;
-			}
-		}
-		inside
+		let points: Vec<Pos2> = face.iter().map(|&vertex| self.vertices[vertex]).collect();
+		encloses(&points, pos)
 	}
 
 	fn triangulate(&self, mut face: Vec<usize>, triangles: &mut Vec<[usize; 3]>) {
@@ -680,6 +688,18 @@ impl Mesh {
 			triangles.push([a, b, c]);
 		}
 	}
+}
+
+pub fn encloses(polygon: &[Pos2], pos: Pos2) -> bool {
+	let mut inside = false;
+	for (index, &a) in polygon.iter().enumerate() {
+		let b = polygon[(index + 1) % polygon.len()];
+		if (a.y > pos.y) != (b.y > pos.y) && pos.x < a.x + (pos.y - a.y) * (b.x - a.x) / (b.y - a.y)
+		{
+			inside = !inside;
+		}
+	}
+	inside
 }
 
 fn face_key(face: &[usize]) -> Vec<usize> {
