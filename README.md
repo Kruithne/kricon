@@ -28,6 +28,7 @@ kricon is a purpose-built icon editing utility.
 | `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
 | `L` | Selects all linked vertices to the currently selected. |
 | `T` | Selects the edges that continue the path of the selected edges. For example, select one edge of an inset circle to select the full inner circle. |
+| `Q` | Opens the menu of all actions at the cursor. The button in the top left also opens it. |
 | `W` | Opens the create menu. |
 | `Shift` + `Scroll` | Scales the new primitive before placement. `Scroll` sets the vertex count of a new circle or curve. |
 | `M` | Opens the merge menu. |

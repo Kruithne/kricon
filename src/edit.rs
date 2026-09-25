@@ -111,6 +111,7 @@ enum Action {
 	Brush,
 	BoxSelect,
 	Menu(MenuKind),
+	MainMenu,
 	Merge(MergeTarget),
 	Dissolve,
 	ToggleHole,
@@ -277,7 +278,7 @@ impl EditMode {
 			operation: Operation::Idle,
 			create_menu: Menu::new("Create", icon::BORING).items(&CREATE_MENU),
 			merge_menu: Menu::new("Merge", icon::BORING).items(&MERGE_MENU),
-			main_menu: Menu::new("Menu", icon::MENU)
+			main_menu: Menu::new("Menu (Q)", icon::MENU)
 				.submenu(
 					"Create (W)",
 					icon::BORING,
@@ -328,8 +329,7 @@ impl EditMode {
 		let open = self.menu_open();
 		self.cancel(mesh);
 		if !open {
-			self.main_menu.reset();
-			self.operation = Operation::MainMenu { anchor };
+			self.open_menu(anchor);
 		}
 	}
 
@@ -725,6 +725,11 @@ impl EditMode {
 		}
 	}
 
+	fn open_menu(&mut self, anchor: Pos2) {
+		self.main_menu.reset();
+		self.operation = Operation::MainMenu { anchor };
+	}
+
 	fn perform(
 		&mut self,
 		mesh: &mut Mesh,
@@ -809,6 +814,7 @@ impl EditMode {
 			Action::Brush => self.operation = Operation::Brush,
 			Action::BoxSelect => self.operation = Operation::BoxSelect { start: None },
 			Action::Menu(kind) => self.operation = Operation::Menu { pos: cursor, kind },
+			Action::MainMenu => self.open_menu(view.to_screen(cursor)),
 			Action::Merge(target) => {
 				self.record(mesh, |edit, mesh| edit.merge(mesh, target, cursor));
 			}
@@ -1085,6 +1091,8 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::SelectLinked
 	} else if key(Key::T) {
 		Action::SelectSameEdge
+	} else if key(Key::Q) {
+		Action::MainMenu
 	} else if key(Key::W) {
 		Action::Menu(MenuKind::Create)
 	} else if key(Key::M) {
