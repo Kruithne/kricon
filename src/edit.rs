@@ -11,6 +11,7 @@ use std::f32::consts::TAU;
 
 const VERTEX_SIZE: f32 = 6.0;
 const VERTEX_HIT_RADIUS: f32 = 8.0;
+const ALIGN_RADIUS: f32 = 8.0;
 const LINK_PICK_RADIUS: f32 = 32.0;
 const EDGE_WIDTH: f32 = 1.5;
 const AXIS_WIDTH: f32 = 1.0;
@@ -122,6 +123,7 @@ struct Transform {
 	primitive: bool,
 	segments: Option<usize>,
 	typed: String,
+	guides: [Option<Pos2>; 2],
 }
 
 impl Transform {
@@ -145,18 +147,21 @@ impl Transform {
 			}
 		};
 
-		let free = match (self.kind == TransformKind::Rotate, self.axis) {
-			(_, None) => Vec2::splat(1.0),
-			(false, Some(Axis::X)) | (true, Some(Axis::Y)) => Vec2::X,
-			(false, Some(Axis::Y)) | (true, Some(Axis::X)) => Vec2::Y,
-		};
 		let target = self.pivot + moved;
 		let target = if snap && self.kind == TransformKind::Translate {
 			target.round()
 		} else {
 			target
 		};
-		pos + (target - pos) * free
+		pos + (target - pos) * self.free()
+	}
+
+	fn free(&self) -> Vec2 {
+		match (self.kind == TransformKind::Rotate, self.axis) {
+			(_, None) => Vec2::splat(1.0),
+			(false, Some(Axis::X)) | (true, Some(Axis::Y)) => Vec2::X,
+			(false, Some(Axis::Y)) | (true, Some(Axis::X)) => Vec2::Y,
+		}
 	}
 
 	fn typed_angle(&self) -> Option<f32> {
@@ -325,25 +330,18 @@ impl EditMode {
 			);
 		}
 
-		if let Operation::Transform(Transform {
-			pivot,
-			axis: Some(axis),
-			..
-		}) = self.operation
-		{
-			let pivot = view.to_screen(pivot);
-			let clip = painter.clip_rect();
-			let (color, points) = match axis {
-				Axis::X => (
-					AXIS_X_COLOR,
-					[pos2(clip.left(), pivot.y), pos2(clip.right(), pivot.y)],
-				),
-				Axis::Y => (
-					AXIS_Y_COLOR,
-					[pos2(pivot.x, clip.top()), pos2(pivot.x, clip.bottom())],
-				),
-			};
-			painter.line_segment(points, Stroke::new(AXIS_WIDTH, color));
+		if let Operation::Transform(transform) = &self.operation {
+			if let Some(axis) = transform.axis {
+				axis_line(painter, axis, view.to_screen(transform.pivot));
+			}
+
+			let [x, y] = transform.guides;
+			if let Some(guide) = x {
+				axis_line(painter, Axis::Y, view.to_screen(guide));
+			}
+			if let Some(guide) = y {
+				axis_line(painter, Axis::X, view.to_screen(guide));
+			}
 		}
 
 		if let Operation::Brush = self.operation
@@ -545,6 +543,20 @@ impl EditMode {
 					mesh.vertices[vertex] =
 						transform.apply(index, pos, cursor, input.modifiers.alt);
 				}
+
+				transform.guides = if input.modifiers.shift
+					&& !transform.primitive
+					&& transform.kind == TransformKind::Translate
+				{
+					align(
+						mesh,
+						&self.selection,
+						transform.free(),
+						ALIGN_RADIUS / view.scale,
+					)
+				} else {
+					[None; 2]
+				};
 
 				let (confirm, cancel) = if transform.drag {
 					(
@@ -754,6 +766,7 @@ impl EditMode {
 			primitive: false,
 			segments: None,
 			typed: String::new(),
+			guides: [None; 2],
 		});
 	}
 }
@@ -763,6 +776,54 @@ fn center(mesh: &Mesh, vertices: &[usize]) -> Pos2 {
 		sum + mesh.vertices[index].to_vec2()
 	});
 	(sum / vertices.len() as f32).to_pos2()
+}
+
+fn align(mesh: &mut Mesh, selection: &[usize], free: Vec2, radius: f32) -> [Option<Pos2>; 2] {
+	let mut selected = vec![false; mesh.vertices.len()];
+	for &index in selection {
+		selected[index] = true;
+	}
+
+	let mut best: [Option<(f32, Pos2)>; 2] = [None; 2];
+	for (index, &target) in mesh.vertices.iter().enumerate() {
+		if selected[index] {
+			continue;
+		}
+
+		for &vertex in selection {
+			let pos = mesh.vertices[vertex];
+			for axis in 0..2 {
+				let delta = target[axis] - pos[axis];
+				if free[axis] > 0.0
+					&& delta.abs() < radius
+					&& best[axis].is_none_or(|(best, _)| delta.abs() < best.abs())
+				{
+					best[axis] = Some((delta, target));
+				}
+			}
+		}
+	}
+
+	let offset = best.map(|best| best.map_or(0.0, |(delta, _)| delta));
+	for &vertex in selection {
+		mesh.vertices[vertex] += vec2(offset[0], offset[1]);
+	}
+	best.map(|best| best.map(|(_, target)| target))
+}
+
+fn axis_line(painter: &egui::Painter, axis: Axis, pos: Pos2) {
+	let clip = painter.clip_rect();
+	let (color, points) = match axis {
+		Axis::X => (
+			AXIS_X_COLOR,
+			[pos2(clip.left(), pos.y), pos2(clip.right(), pos.y)],
+		),
+		Axis::Y => (
+			AXIS_Y_COLOR,
+			[pos2(pos.x, clip.top()), pos2(pos.x, clip.bottom())],
+		),
+	};
+	painter.line_segment(points, Stroke::new(AXIS_WIDTH, color));
 }
 
 fn wheel_steps(input: &egui::InputState) -> isize {
