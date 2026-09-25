@@ -19,8 +19,8 @@ pub struct Layers {
 	editing: Option<(u32, String)>,
 }
 
-impl Layers {
-	pub fn new() -> Self {
+impl Default for Layers {
+	fn default() -> Self {
 		Self {
 			header: Header::new("Layers", icon::BORING),
 			edit_icon: Icon::new(icon::BORING),
@@ -28,7 +28,9 @@ impl Layers {
 			editing: None,
 		}
 	}
+}
 
+impl Layers {
 	pub fn show(
 		&mut self,
 		ctx: &egui::Context,

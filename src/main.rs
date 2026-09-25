@@ -452,7 +452,7 @@ fn main() -> eframe::Result {
 			cc.egui_ctx
 				.all_styles_mut(|style| style.animation_time = 0.0);
 			let settings = Settings::load();
-			let mut edit = EditMode::new();
+			let mut edit = EditMode::default();
 			edit.show_images = settings.show_images;
 			edit.show_outlines = settings.show_outlines;
 			let mut spacing = Spacing::default();
@@ -464,14 +464,14 @@ fn main() -> eframe::Result {
 				},
 				mesh: Mesh::default(),
 				edit,
-				layers: Layers::new(),
+				layers: Layers::default(),
 				face_opacity: settings.face_opacity.clamp(0.0, 1.0),
 				spacing,
-				loader: Loader::new(),
+				loader: Loader::default(),
 				menu_icon: Icon::new(icon::MENU),
 				images_icon: Icon::new(icon::BORING),
 				outlines_icon: Icon::new(icon::BORING),
-				workspace: Workspace::new(),
+				workspace: Workspace::default(),
 				restoring: settings.workspace.is_some(),
 				settings,
 				title: String::new(),

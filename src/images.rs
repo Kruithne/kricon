@@ -82,12 +82,14 @@ pub struct Loader {
 	receiver: Receiver<Decoded>,
 }
 
-impl Loader {
-	pub fn new() -> Self {
+impl Default for Loader {
+	fn default() -> Self {
 		let (sender, receiver) = mpsc::channel();
 		Self { sender, receiver }
 	}
+}
 
+impl Loader {
 	pub fn load(&self, ctx: &egui::Context, files: Vec<DroppedFileHandle>) {
 		let max_side = max_side(ctx);
 		for file in files {

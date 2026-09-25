@@ -310,8 +310,8 @@ pub struct EditMode {
 	pointer: Option<Pos2>,
 }
 
-impl EditMode {
-	pub fn new() -> Self {
+impl Default for EditMode {
+	fn default() -> Self {
 		Self {
 			show_images: true,
 			show_outlines: true,
@@ -341,7 +341,9 @@ impl EditMode {
 			pointer: None,
 		}
 	}
+}
 
+impl EditMode {
 	pub fn update(&mut self, mesh: &mut Mesh, view: &View, response: &egui::Response) {
 		let keyboard = !response.ctx.egui_wants_keyboard_input();
 		let hovered = response.hovered();

@@ -44,8 +44,8 @@ pub struct Workspace {
 	autosave: Instant,
 }
 
-impl Workspace {
-	pub fn new() -> Self {
+impl Default for Workspace {
+	fn default() -> Self {
 		Self {
 			path: None,
 			saved: 0,
@@ -54,7 +54,9 @@ impl Workspace {
 			autosave: Instant::now(),
 		}
 	}
+}
 
+impl Workspace {
 	pub fn reset(&mut self, path: Option<PathBuf>, revision: u64) {
 		self.path = path;
 		self.saved = revision;
