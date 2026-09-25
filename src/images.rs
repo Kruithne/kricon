@@ -1,3 +1,4 @@
+use crate::geometry;
 use crate::view::View;
 use eframe::egui::{
 	self, Color32, ColorImage, DroppedFileHandle, Pos2, TextureHandle, TextureOptions,
@@ -57,7 +58,7 @@ impl Image {
 	}
 
 	pub fn contains(&self, pos: Pos2) -> bool {
-		crate::mesh::encloses(&self.corners, pos)
+		geometry::encloses(&self.corners, pos)
 	}
 
 	pub fn draw(&self, view: &View, painter: &egui::Painter) {

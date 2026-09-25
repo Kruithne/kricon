@@ -1,11 +1,11 @@
 use crate::export::{Fill, Segment};
+use crate::geometry::{area, cross, encloses, turn};
 use crate::history::Splice;
 use crate::images::Image;
 use crate::import::Shape;
 use eframe::egui::{Color32, Pos2, Rect, Vec2, vec2};
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
-use std::f32::consts::TAU;
 
 const MIN_MITER: f32 = 0.01;
 const FACE_COLOR: Color32 = Color32::WHITE;
@@ -768,14 +768,10 @@ impl Mesh {
 			}
 			[_, _, _] => {
 				let back = direction(prev);
-				let turn = |to: usize| {
-					let forward = direction(to);
-					cross(back, forward)
-						.atan2(back.dot(forward))
-						.rem_euclid(TAU)
-				};
 				let mut sorted = others;
-				sorted.sort_by(|&a, &b| turn(a).total_cmp(&turn(b)));
+				sorted.sort_by(|&a, &b| {
+					turn(back, direction(a)).total_cmp(&turn(back, direction(b)))
+				});
 				Some(sorted[1])
 			}
 			_ => None,
@@ -1047,15 +1043,6 @@ impl Mesh {
 	}
 }
 
-pub fn area(polygon: &[Pos2]) -> f32 {
-	let mut area = 0.0;
-	for (index, &a) in polygon.iter().enumerate() {
-		let b = polygon[(index + 1) % polygon.len()];
-		area += a.x * b.y - b.x * a.y;
-	}
-	area / 2.0
-}
-
 fn subtract(polygon: Vec<Pos2>, cutters: &[&[Pos2; 3]]) -> Vec<Vec<Pos2>> {
 	let mut pieces = vec![polygon];
 	for cutter in cutters {
@@ -1105,27 +1092,11 @@ fn split(polygon: &[Pos2], a: Pos2, b: Pos2) -> [Vec<Pos2>; 2] {
 	halves
 }
 
-pub fn encloses(polygon: &[Pos2], pos: Pos2) -> bool {
-	let mut inside = false;
-	for (index, &a) in polygon.iter().enumerate() {
-		let b = polygon[(index + 1) % polygon.len()];
-		if (a.y > pos.y) != (b.y > pos.y) && pos.x < a.x + (pos.y - a.y) * (b.x - a.x) / (b.y - a.y)
-		{
-			inside = !inside;
-		}
-	}
-	inside
-}
-
 fn face_key(face: &[usize]) -> Vec<usize> {
 	let mut key = face.to_vec();
 	key.sort_unstable();
 	key.dedup();
 	key
-}
-
-fn cross(a: Vec2, b: Vec2) -> f32 {
-	a.x * b.y - a.y * b.x
 }
 
 fn arc_point(p: Pos2, a: Pos2, b: Pos2) -> Option<Pos2> {

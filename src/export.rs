@@ -1,3 +1,4 @@
+use crate::geometry::cross;
 use eframe::egui::{Color32, Pos2, Rect, Vec2, vec2};
 use std::fmt::Write;
 
@@ -532,8 +533,4 @@ fn number(value: f32) -> String {
 	let text = format!("{value:.DECIMALS$}");
 	let text = text.trim_end_matches('0').trim_end_matches('.');
 	if text == "-0" { "0" } else { text }.to_string()
-}
-
-fn cross(a: Vec2, b: Vec2) -> f32 {
-	a.x * b.y - a.y * b.x
 }

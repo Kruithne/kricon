@@ -1,4 +1,4 @@
-use crate::mesh::{area, encloses};
+use crate::geometry::{area, cross, encloses};
 use crate::svg::{self, Point};
 use eframe::egui::{Color32, Pos2, Vec2, pos2};
 
@@ -481,7 +481,7 @@ fn subdivide([a, b, c, d]: [Pos2; 4], depth: u32, outline: &mut Vec<Pos2>) {
 	let length = chord.length();
 	let distance = |p: Pos2| {
 		if length > f32::EPSILON {
-			(chord.x * (p - a).y - chord.y * (p - a).x).abs() / length
+			cross(chord, p - a).abs() / length
 		} else {
 			p.distance(a)
 		}

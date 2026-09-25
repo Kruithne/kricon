@@ -2,6 +2,7 @@
 
 mod edit;
 mod export;
+mod geometry;
 mod history;
 mod icon;
 mod images;

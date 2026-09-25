@@ -1,8 +1,8 @@
-use crate::mesh::{self, Mesh};
+use crate::geometry::{cross, encloses, turn};
+use crate::mesh::Mesh;
 use crate::view::View;
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2, vec2};
 use std::collections::HashMap;
-use std::f32::consts::TAU;
 
 const WARNING_COLOR: Color32 = Color32::from_rgb(255, 150, 30);
 const STROKE_WIDTH: f32 = 2.0;
@@ -67,7 +67,7 @@ fn boundary(regions: &[Region]) -> Vec<[Pos2; 4]> {
 		regions
 			.iter()
 			.zip(&bounds)
-			.position(|((outline, _), rect)| rect.contains(point) && mesh::encloses(outline, point))
+			.position(|((outline, _), rect)| rect.contains(point) && encloses(outline, point))
 	};
 
 	let mut pieces = Vec::new();
@@ -189,10 +189,6 @@ fn split_points(a: Pos2, b: Pos2, c: Pos2, d: Pos2, cuts: &mut Vec<Pos2>) {
 	}
 }
 
-fn turn(from: Vec2, to: Vec2) -> f32 {
-	cross(from, to).atan2(from.dot(to)).rem_euclid(TAU)
-}
-
 fn measure(segments: &[[Pos2; 4]], limit: f32) -> Vec<[Pos2; 2]> {
 	let mut bounds: Vec<(Rect, usize)> = segments
 		.iter()
@@ -282,10 +278,6 @@ fn local_minimum(s: &[Pos2; 4], point: Pos2, direction: Vec2) -> bool {
 
 	direction.dot(incoming.normalized()) > CONE_MARGIN
 		&& direction.dot(outgoing.normalized()) < -CONE_MARGIN
-}
-
-fn cross(a: Vec2, b: Vec2) -> f32 {
-	a.x * b.y - a.y * b.x
 }
 
 fn project(point: Pos2, a: Pos2, b: Pos2) -> Pos2 {
