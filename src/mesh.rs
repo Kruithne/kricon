@@ -1,6 +1,7 @@
 use crate::export::{Fill, Segment};
 use crate::history::Splice;
 use crate::images::Image;
+use crate::import::Shape;
 use eframe::egui::{Color32, Pos2, Rect, Vec2, vec2};
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -112,6 +113,18 @@ impl Mesh {
 				.push([offset + index, offset + (index + 1) % points.len()]);
 		}
 		(offset..self.vertices.len()).collect()
+	}
+
+	pub fn add_shape(&mut self, shape: &Shape, offset: Vec2) -> Vec<usize> {
+		let points: Vec<Pos2> = shape.points.iter().map(|&pos| pos + offset).collect();
+		let vertices = self.add_loop(&points, shape.curve);
+		if shape.holdout {
+			self.toggle_holdout(&vertices);
+		}
+		if let Some(color) = shape.color {
+			self.set_color(&vertices, color);
+		}
+		vertices
 	}
 
 	pub fn extrude(&mut self, vertices: &[usize]) -> Vec<usize> {
@@ -1034,7 +1047,7 @@ impl Mesh {
 	}
 }
 
-fn area(polygon: &[Pos2]) -> f32 {
+pub fn area(polygon: &[Pos2]) -> f32 {
 	let mut area = 0.0;
 	for (index, &a) in polygon.iter().enumerate() {
 		let b = polygon[(index + 1) % polygon.len()];

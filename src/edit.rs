@@ -2,6 +2,7 @@ use crate::export;
 use crate::history::History;
 use crate::icon;
 use crate::images::Image;
+use crate::import::{self, Shape};
 use crate::menu::Menu;
 use crate::mesh::Mesh;
 use crate::panel;
@@ -345,7 +346,7 @@ impl EditMode {
 		let action = response
 			.ctx
 			.input(|input| self.handle_input(mesh, view, input, hovered, keyboard));
-		self.handle_paste(mesh, &response.ctx);
+		self.handle_paste(mesh, view, response);
 		if let Some((action, cursor)) = action {
 			self.perform(mesh, view, &response.ctx, action, cursor);
 		}
@@ -469,6 +470,28 @@ impl EditMode {
 				images: vec![mesh.images.len()],
 			};
 			mesh.images.push(image);
+		});
+	}
+
+	pub fn import(&mut self, mesh: &mut Mesh, shapes: &[Shape], center: Pos2) {
+		let points: Vec<Pos2> = shapes
+			.iter()
+			.flat_map(|shape| shape.points.iter().copied())
+			.collect();
+		if points.is_empty() {
+			return;
+		}
+
+		let offset = (center - Rect::from_points(&points).center()).round();
+		self.cancel(mesh);
+		self.record(mesh, |edit, mesh| {
+			edit.selection = Selection {
+				vertices: shapes
+					.iter()
+					.flat_map(|shape| mesh.add_shape(shape, offset))
+					.collect(),
+				images: Vec::new(),
+			};
 		});
 	}
 
@@ -815,9 +838,10 @@ impl EditMode {
 		None
 	}
 
-	fn handle_paste(&mut self, mesh: &mut Mesh, ctx: &egui::Context) {
+	fn handle_paste(&mut self, mesh: &mut Mesh, view: &View, response: &egui::Response) {
+		let ctx = &response.ctx;
 		let pending = std::mem::replace(&mut self.paste_pending, false);
-		if !pending || !matches!(self.operation, Operation::Idle) {
+		if !matches!(self.operation, Operation::Idle) || ctx.egui_wants_keyboard_input() {
 			return;
 		}
 
@@ -827,7 +851,15 @@ impl EditMode {
 				_ => None,
 			})
 		});
-		if let Some(color) = pasted.as_deref().and_then(parse_color) {
+		let Some(text) = pasted else {
+			return;
+		};
+
+		let shapes = import::parse(&text);
+		if !shapes.is_empty() {
+			let pointer = ctx.pointer_latest_pos().unwrap_or(response.rect.center());
+			self.import(mesh, &shapes, view.to_world(pointer));
+		} else if pending && let Some(color) = parse_color(&text) {
 			self.record(mesh, |edit, mesh| {
 				mesh.set_color(&edit.selection.vertices, color)
 			});

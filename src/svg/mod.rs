@@ -1,7 +1,7 @@
 mod path;
 mod raster;
 
-pub use path::Segment;
+pub use path::{Segment, parse as parse_path};
 pub use raster::rasterize;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -70,7 +70,7 @@ impl Svg {
 	}
 }
 
-fn tags(text: &str) -> impl Iterator<Item = &str> {
+pub fn tags(text: &str) -> impl Iterator<Item = &str> {
 	let mut rest = text;
 	std::iter::from_fn(move || {
 		loop {
@@ -90,7 +90,7 @@ fn tags(text: &str) -> impl Iterator<Item = &str> {
 	})
 }
 
-fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+pub fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
 	let mut rest = tag;
 	while let Some(eq) = rest.find('=') {
 		let key = rest[..eq].split_whitespace().last().unwrap_or("");

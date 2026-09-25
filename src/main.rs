@@ -5,6 +5,7 @@ mod export;
 mod history;
 mod icon;
 mod images;
+mod import;
 mod layers;
 mod menu;
 mod mesh;
@@ -84,13 +85,25 @@ impl App {
 		painter.add(shape);
 	}
 
-	fn load_images(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-		let dropped = ctx.input(|input| input.raw.dropped_files.clone());
-		self.loader.load(ctx, dropped);
+	fn load_files(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+		let pos = self
+			.view
+			.to_world(ctx.pointer_latest_pos().unwrap_or(rect.center()));
+		let (vectors, images): (Vec<_>, Vec<_>) = ctx
+			.input(|input| input.raw.dropped_files.clone())
+			.into_iter()
+			.partition(|file| is_svg(file.path()));
+		self.loader.load(ctx, images);
+
+		for file in vectors {
+			if let Ok(bytes) = file.bytes() {
+				let shapes = import::parse(&String::from_utf8_lossy(&bytes));
+				self.edit.import(&mut self.mesh, &shapes, pos);
+			}
+		}
 
 		for decoded in self.loader.receive() {
-			let pos = ctx.pointer_latest_pos().unwrap_or(rect.center());
-			let image = Image::new(ctx, decoded, self.view.to_world(pos));
+			let image = Image::new(ctx, decoded, pos);
 			self.edit.add_image(&mut self.mesh, image);
 		}
 	}
@@ -298,7 +311,7 @@ impl eframe::App for App {
 
 		self.edit.update(&mut self.mesh, &self.view, &response);
 		self.handle_files(ui.ctx(), frame);
-		self.load_images(ui.ctx(), rect);
+		self.load_files(ui.ctx(), rect);
 
 		let painter = ui.painter();
 		painter.rect_filled(rect, 0.0, BACKGROUND_COLOR);
@@ -340,6 +353,11 @@ fn button(ui: &mut egui::Ui, icon: &mut Icon, active: bool) -> egui::Response {
 			response
 		})
 		.inner
+}
+
+fn is_svg(path: &Path) -> bool {
+	path.extension()
+		.is_some_and(|extension| extension.eq_ignore_ascii_case("svg"))
 }
 
 fn file_dialog(frame: &eframe::Frame) -> rfd::FileDialog {
