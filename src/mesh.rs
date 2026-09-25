@@ -1,5 +1,5 @@
 use crate::export::Fill;
-use crate::geometry::{Segment, area, cross, encloses, turn};
+use crate::geometry::{Segment, area, bspline_span, cross, encloses, turn};
 use crate::history::Splice;
 use crate::images::Image;
 use crate::import::Shape;
@@ -665,16 +665,9 @@ impl Mesh {
 					return Segment::Line([point(index), point(index + 1)]);
 				}
 
-				let [a, b, c, d] = [0, 1, 2, 3].map(|offset| point(index + offset).to_vec2());
-				Segment::Cubic(
-					[
-						(a + b * 4.0 + c) / 6.0,
-						(b * 2.0 + c) / 3.0,
-						(b + c * 2.0) / 3.0,
-						(b + c * 4.0 + d) / 6.0,
-					]
-					.map(Vec2::to_pos2),
-				)
+				Segment::Cubic(bspline_span(
+					[0, 1, 2, 3].map(|offset| point(index + offset)),
+				))
 			})
 			.collect()
 	}

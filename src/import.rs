@@ -1,4 +1,4 @@
-use crate::geometry::{Segment, area, encloses};
+use crate::geometry::{Segment, area, bspline_span, encloses};
 use crate::svg::{self, Point};
 use eframe::egui::{Color32, Pos2, Vec2, pos2};
 
@@ -354,18 +354,12 @@ fn spline(cubics: &[[Pos2; 4]]) -> Option<Vec<Pos2>> {
 	}
 
 	let points: Vec<Pos2> = cubics.iter().map(|&[_, b, c, _]| b + (b - c)).collect();
-	let point = |index: usize| points[(index + count - 1) % count].to_vec2();
+	let point = |index: usize| points[(index + count - 1) % count];
 	let exact = cubics.iter().enumerate().all(|(index, cubic)| {
-		let [a, b, c, d] = [0, 1, 2, 3].map(|offset| point(index + offset));
-		let span = [
-			(a + b * 4.0 + c) / 6.0,
-			(b * 2.0 + c) / 3.0,
-			(b + c * 2.0) / 3.0,
-			(b + c * 4.0 + d) / 6.0,
-		];
+		let span = bspline_span([0, 1, 2, 3].map(|offset| point(index + offset)));
 		span.iter()
 			.zip(cubic)
-			.all(|(expected, actual)| expected.to_pos2().distance(*actual) <= SPLINE_TOLERANCE)
+			.all(|(expected, actual)| expected.distance(*actual) <= SPLINE_TOLERANCE)
 	});
 	exact.then_some(points)
 }

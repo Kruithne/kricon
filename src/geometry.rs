@@ -130,6 +130,17 @@ impl Segment {
 	}
 }
 
+pub fn bspline_span(points: [Pos2; 4]) -> [Pos2; 4] {
+	let [a, b, c, d] = points.map(Pos2::to_vec2);
+	[
+		(a + b * 4.0 + c) / 6.0,
+		(b * 2.0 + c) / 3.0,
+		(b + c * 2.0) / 3.0,
+		(b + c * 4.0 + d) / 6.0,
+	]
+	.map(Vec2::to_pos2)
+}
+
 pub fn cross(a: Vec2, b: Vec2) -> f32 {
 	a.x * b.y - a.y * b.x
 }
