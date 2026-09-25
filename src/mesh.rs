@@ -535,12 +535,7 @@ impl Mesh {
 
 	pub fn triangles(&self) -> Vec<([Pos2; 3], Color32)> {
 		let ranks = self.ranks();
-		let holdouts: HashSet<u32> = self
-			.layers
-			.iter()
-			.filter(|layer| layer.holdout)
-			.map(|layer| layer.id)
-			.collect();
+		let holdouts = self.holdouts();
 		let rank = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
 		let (cutters, mut faces): (Vec<_>, Vec<_>) = self
 			.filled_faces()
@@ -577,32 +572,19 @@ impl Mesh {
 		triangles
 	}
 
-	pub fn boundary(&self) -> Vec<[Pos2; 4]> {
-		let mut segments = Vec::new();
-		let mut directed = Vec::new();
-		for face in self.filled_faces() {
-			if !self.is_curve(face[0]) {
-				for (index, &a) in face.iter().enumerate() {
-					directed.push([a, face[(index + 1) % face.len()]]);
-				}
-				continue;
-			}
-
-			let outline = self.outline(&face);
-			let count = outline.len();
-			for index in 0..count {
-				segments.push([count - 1, 0, 1, 2].map(|offset| outline[(index + offset) % count]));
-			}
-		}
-
-		let lookup: HashSet<[usize; 2]> = directed.iter().copied().collect();
-		directed.retain(|&[a, b]| !lookup.contains(&[b, a]));
-		let next: HashMap<usize, usize> = directed.iter().map(|&[a, b]| (a, b)).collect();
-		let prev: HashMap<usize, usize> = directed.iter().map(|&[a, b]| (b, a)).collect();
-		for &[a, b] in &directed {
-			segments.push([prev[&a], a, b, next[&b]].map(|vertex| self.vertices[vertex]));
-		}
-		segments
+	pub fn regions(&self) -> Vec<(Vec<Pos2>, Option<Color32>)> {
+		let ranks = self.ranks();
+		let holdouts = self.holdouts();
+		let mut faces = self.filled_faces();
+		faces.sort_by_key(|face| ranks[&self.vertex_layers[face[0]]]);
+		faces
+			.iter()
+			.map(|face| {
+				let holdout = holdouts.contains(&self.vertex_layers[face[0]]);
+				let fill = (!holdout).then(|| self.color_of(&face_key(face)));
+				(self.outline(face), fill)
+			})
+			.collect()
 	}
 
 	fn copy_vertices(&mut self, vertices: &[usize]) -> Vec<usize> {
@@ -719,6 +701,14 @@ impl Mesh {
 			.iter()
 			.enumerate()
 			.map(|(rank, layer)| (layer.id, rank))
+			.collect()
+	}
+
+	fn holdouts(&self) -> HashSet<u32> {
+		self.layers
+			.iter()
+			.filter(|layer| layer.holdout)
+			.map(|layer| layer.id)
 			.collect()
 	}
 

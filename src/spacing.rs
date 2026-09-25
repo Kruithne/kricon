@@ -1,6 +1,8 @@
-use crate::mesh::Mesh;
+use crate::mesh::{self, Mesh};
 use crate::view::View;
-use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
+use eframe::egui::{self, Color32, Pos2, Rect, Vec2, vec2};
+use std::collections::HashMap;
+use std::f32::consts::TAU;
 
 const WARNING_COLOR: Color32 = Color32::from_rgb(255, 150, 30);
 const STROKE_WIDTH: f32 = 2.0;
@@ -8,11 +10,14 @@ const HEAD_SIZE: f32 = 6.0;
 const EPSILON: f32 = 1e-4;
 const CONE_MARGIN: f32 = 0.05;
 const PARALLEL: f32 = 0.17;
+const NUDGE: f32 = 1e-3;
+
+type Region = (Vec<Pos2>, Option<Color32>);
 
 #[derive(Default)]
 pub struct Spacing {
 	pub distance: f32,
-	boundary: Vec<[Pos2; 4]>,
+	regions: Vec<Region>,
 	measured: f32,
 	arrows: Vec<[Pos2; 2]>,
 }
@@ -21,17 +26,17 @@ impl Spacing {
 	pub fn update(&mut self, mesh: &Mesh) {
 		if self.distance <= 0.0 {
 			self.arrows.clear();
-			self.boundary.clear();
+			self.regions.clear();
 			return;
 		}
 
-		let boundary = mesh.boundary();
-		if boundary == self.boundary && self.distance == self.measured {
+		let regions = mesh.regions();
+		if regions == self.regions && self.distance == self.measured {
 			return;
 		}
 
-		self.arrows = measure(&boundary, self.distance);
-		self.boundary = boundary;
+		self.arrows = measure(&boundary(&regions), self.distance);
+		self.regions = regions;
 		self.measured = self.distance;
 	}
 
@@ -51,6 +56,141 @@ fn draw_head(painter: &egui::Painter, tip: Pos2, from: Pos2, stroke: egui::Strok
 	let side = back.rot90() * 0.5;
 	painter.line_segment([tip, tip + back + side], stroke);
 	painter.line_segment([tip, tip + back - side], stroke);
+}
+
+fn boundary(regions: &[Region]) -> Vec<[Pos2; 4]> {
+	let bounds: Vec<Rect> = regions
+		.iter()
+		.map(|(outline, _)| Rect::from_points(outline))
+		.collect();
+	let top = |point: Pos2| {
+		regions
+			.iter()
+			.zip(&bounds)
+			.position(|((outline, _), rect)| rect.contains(point) && mesh::encloses(outline, point))
+	};
+
+	let mut pieces = Vec::new();
+	for (owner, (outline, fill)) in regions.iter().enumerate() {
+		for (index, &a) in outline.iter().enumerate() {
+			let b = outline[(index + 1) % outline.len()];
+			let rect = Rect::from_two_pos(a, b);
+			let mut cuts = vec![a, b];
+			for (other, (edges, _)) in regions.iter().enumerate() {
+				if other == owner || !bounds[other].intersects(rect) {
+					continue;
+				}
+
+				for (index, &c) in edges.iter().enumerate() {
+					let d = edges[(index + 1) % edges.len()];
+					if rect.intersects(Rect::from_two_pos(c, d)) {
+						split_points(a, b, c, d, &mut cuts);
+					}
+				}
+			}
+
+			let edge = b - a;
+			cuts.sort_by(|p, q| (*p - a).dot(edge).total_cmp(&(*q - a).dot(edge)));
+			for pair in cuts.windows(2) {
+				let [p, q] = [pair[0], pair[1]];
+				if p.distance(q) < EPSILON {
+					continue;
+				}
+
+				let direction = (q - p).normalized();
+				let normal = vec2(-direction.y, direction.x) * NUDGE;
+				let middle = p.lerp(q, 0.5);
+				if top(middle + normal) != Some(owner) {
+					continue;
+				}
+
+				let below = top(middle - normal);
+				if below.is_some_and(|below| below < owner) {
+					continue;
+				}
+
+				let other = below.and_then(|below| regions[below].1);
+				if *fill == other {
+					continue;
+				}
+
+				if fill.is_some() {
+					pieces.push([p, q]);
+				}
+				if other.is_some() {
+					pieces.push([q, p]);
+				}
+			}
+		}
+	}
+	link(&pieces)
+}
+
+fn link(pieces: &[[Pos2; 2]]) -> Vec<[Pos2; 4]> {
+	let key = |pos: Pos2| [pos.x.to_bits(), pos.y.to_bits()];
+	let mut starts: HashMap<[u32; 2], Vec<Pos2>> = HashMap::new();
+	let mut ends: HashMap<[u32; 2], Vec<Pos2>> = HashMap::new();
+	for &[a, b] in pieces {
+		starts.entry(key(a)).or_default().push(b);
+		ends.entry(key(b)).or_default().push(a);
+	}
+
+	pieces
+		.iter()
+		.map(|&[a, b]| {
+			let next = starts
+				.get(&key(b))
+				.into_iter()
+				.flatten()
+				.filter(|&&next| next != a)
+				.min_by(|p, q| turn(**p - b, a - b).total_cmp(&turn(**q - b, a - b)))
+				.map_or(b + (b - a), |&next| next);
+			let prev = ends
+				.get(&key(a))
+				.into_iter()
+				.flatten()
+				.filter(|&&prev| prev != b)
+				.min_by(|p, q| turn(b - a, **p - a).total_cmp(&turn(b - a, **q - a)))
+				.map_or(a - (b - a), |&prev| prev);
+			[prev, a, b, next]
+		})
+		.collect()
+}
+
+fn split_points(a: Pos2, b: Pos2, c: Pos2, d: Pos2, cuts: &mut Vec<Pos2>) {
+	for point in [c, d] {
+		if point.distance(a) > EPSILON
+			&& point.distance(b) > EPSILON
+			&& point.distance(project(point, a, b)) < EPSILON
+		{
+			cuts.push(point);
+		}
+	}
+
+	let order = |[p, q]: [Pos2; 2]| {
+		if (p.x, p.y) <= (q.x, q.y) {
+			[p, q]
+		} else {
+			[q, p]
+		}
+	};
+	let (mut first, mut second) = (order([a, b]), order([c, d]));
+	if (first[0].x, first[0].y, first[1].x, first[1].y)
+		> (second[0].x, second[0].y, second[1].x, second[1].y)
+	{
+		std::mem::swap(&mut first, &mut second);
+	}
+
+	let [p, q] = first;
+	let [r, s] = second;
+	if intersects(p, q, r, s) {
+		let t = cross(r - p, s - r) / cross(q - p, s - r);
+		cuts.push(p + (q - p) * t);
+	}
+}
+
+fn turn(from: Vec2, to: Vec2) -> f32 {
+	cross(from, to).atan2(from.dot(to)).rem_euclid(TAU)
 }
 
 fn measure(segments: &[[Pos2; 4]], limit: f32) -> Vec<[Pos2; 2]> {
