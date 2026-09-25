@@ -1,5 +1,5 @@
 use crate::geometry::{Segment, area, bspline_span, encloses};
-use crate::svg::{self, Point};
+use crate::svg;
 use eframe::egui::{Color32, Pos2, Vec2, pos2};
 
 const TOLERANCE: f32 = 0.02;
@@ -266,7 +266,7 @@ fn convert(data: &str, style: Style, color: Option<Color32>) -> Vec<Shape> {
 }
 
 fn contours(path: &[svg::Command], transform: Matrix) -> Vec<Vec<Segment>> {
-	let pos = |point: Point| {
+	let pos = |point: Pos2| {
 		let [a, b, c, d, e, f] = transform;
 		pos2(a * point.x + c * point.y + e, b * point.x + d * point.y + f)
 	};

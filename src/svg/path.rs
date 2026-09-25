@@ -1,12 +1,12 @@
-use super::Point;
+use eframe::egui::{Pos2, Vec2, pos2};
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
-	Move(Point),
-	Line(Point),
-	Quad(Point, Point),
-	Cubic(Point, Point, Point),
+	Move(Pos2),
+	Line(Pos2),
+	Quad(Pos2, Pos2),
+	Cubic(Pos2, Pos2, Pos2),
 	Close,
 }
 
@@ -71,8 +71,8 @@ impl Cursor<'_> {
 		}
 	}
 
-	fn point(&mut self) -> Option<Point> {
-		Some(Point::new(self.number()?, self.number()?))
+	fn point(&mut self) -> Option<Pos2> {
+		Some(pos2(self.number()?, self.number()?))
 	}
 
 	fn eat(&mut self, test: impl Fn(u8) -> bool) -> bool {
@@ -103,8 +103,8 @@ pub fn parse(data: &str) -> Vec<Command> {
 		pos: 0,
 	};
 	let mut letter = 0;
-	let mut current = Point::default();
-	let mut start = Point::default();
+	let mut current = Pos2::ZERO;
+	let mut start = Pos2::ZERO;
 	let mut previous = None;
 
 	while !cursor.done() {
@@ -115,8 +115,12 @@ pub fn parse(data: &str) -> Vec<Command> {
 		}
 
 		let relative = letter.is_ascii_lowercase();
-		let origin = if relative { current } else { Point::default() };
-		let offset = |p: Point| Point::new(p.x + origin.x, p.y + origin.y);
+		let origin = if relative {
+			current.to_vec2()
+		} else {
+			Vec2::ZERO
+		};
+		let offset = |p: Pos2| p + origin;
 
 		let command = match letter.to_ascii_uppercase() {
 			b'M' => {
@@ -133,11 +137,11 @@ pub fn parse(data: &str) -> Vec<Command> {
 				None => break,
 			},
 			b'H' => match cursor.number() {
-				Some(x) => Command::Line(Point::new(x + origin.x, current.y)),
+				Some(x) => Command::Line(pos2(x + origin.x, current.y)),
 				None => break,
 			},
 			b'V' => match cursor.number() {
-				Some(y) => Command::Line(Point::new(current.x, y + origin.y)),
+				Some(y) => Command::Line(pos2(current.x, y + origin.y)),
 				None => break,
 			},
 			b'C' => match (cursor.point(), cursor.point(), cursor.point()) {
@@ -212,19 +216,19 @@ pub fn parse(data: &str) -> Vec<Command> {
 	commands
 }
 
-fn reflect(control: Point, about: Point) -> Point {
-	Point::new(2.0 * about.x - control.x, 2.0 * about.y - control.y)
+fn reflect(control: Pos2, about: Pos2) -> Pos2 {
+	about + (about - control)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn arc_to_cubics(
-	from: Point,
+	from: Pos2,
 	rx: f32,
 	ry: f32,
 	angle: f32,
 	large: bool,
 	sweep: bool,
-	to: Point,
+	to: Pos2,
 	out: &mut Vec<Command>,
 ) {
 	if from == to {
@@ -273,7 +277,7 @@ fn arc_to_cubics(
 	let step = delta / count as f32;
 	let k = 4.0 / 3.0 * (step / 4.0).tan();
 	let map = |ux: f32, uy: f32| {
-		Point::new(
+		pos2(
 			cx + rx * cos * ux - ry * sin * uy,
 			cy + rx * sin * ux + ry * cos * uy,
 		)

@@ -1,11 +1,12 @@
-use super::{Command, FillRule, Point, Svg};
+use super::{Command, FillRule, Svg};
+use eframe::egui::{Pos2, pos2};
 
 const SUBSAMPLES: usize = 16;
 const TOLERANCE: f32 = 0.1;
 
 struct Edge {
-	from: Point,
-	to: Point,
+	from: Pos2,
+	to: Pos2,
 }
 
 pub fn rasterize(svg: &Svg, width: usize, height: usize) -> Vec<u8> {
@@ -13,7 +14,7 @@ pub fn rasterize(svg: &Svg, width: usize, height: usize) -> Vec<u8> {
 	let scale = (width as f32 / vw).min(height as f32 / vh);
 	let dx = (width as f32 - vw * scale) / 2.0 - vx * scale;
 	let dy = (height as f32 - vh * scale) / 2.0 - vy * scale;
-	let transform = |p: Point| Point::new(p.x * scale + dx, p.y * scale + dy);
+	let transform = |p: Pos2| pos2(p.x * scale + dx, p.y * scale + dy);
 
 	let mut alpha = vec![0.0f32; width * height];
 	let mut coverage = vec![0.0f32; width * height];
@@ -32,11 +33,11 @@ pub fn rasterize(svg: &Svg, width: usize, height: usize) -> Vec<u8> {
 	alpha.iter().map(|a| (a * 255.0).round() as u8).collect()
 }
 
-fn flatten(commands: &[Command], transform: impl Fn(Point) -> Point) -> Vec<Edge> {
+fn flatten(commands: &[Command], transform: impl Fn(Pos2) -> Pos2) -> Vec<Edge> {
 	let mut edges = Vec::new();
-	let mut start = Point::default();
-	let mut current = Point::default();
-	let line_to = |edges: &mut Vec<Edge>, current: &mut Point, to: Point| {
+	let mut start = Pos2::ZERO;
+	let mut current = Pos2::ZERO;
+	let line_to = |edges: &mut Vec<Edge>, current: &mut Pos2, to: Pos2| {
 		if *current != to {
 			edges.push(Edge { from: *current, to });
 		}
@@ -60,7 +61,7 @@ fn flatten(commands: &[Command], transform: impl Fn(Point) -> Point) -> Vec<Edge
 					let u = 1.0 - t;
 					let x = u * u * p0.x + 2.0 * u * t * p1.x + t * t * p2.x;
 					let y = u * u * p0.y + 2.0 * u * t * p1.y + t * t * p2.y;
-					line_to(&mut edges, &mut current, Point::new(x, y));
+					line_to(&mut edges, &mut current, pos2(x, y));
 				}
 			}
 			Command::Cubic(a, b, p) => {
@@ -72,7 +73,7 @@ fn flatten(commands: &[Command], transform: impl Fn(Point) -> Point) -> Vec<Edge
 					let (w0, w1, w2, w3) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
 					let x = w0 * p0.x + w1 * p1.x + w2 * p2.x + w3 * p3.x;
 					let y = w0 * p0.y + w1 * p1.y + w2 * p2.y + w3 * p3.y;
-					line_to(&mut edges, &mut current, Point::new(x, y));
+					line_to(&mut edges, &mut current, pos2(x, y));
 				}
 			}
 			Command::Close => line_to(&mut edges, &mut current, start),
@@ -83,7 +84,7 @@ fn flatten(commands: &[Command], transform: impl Fn(Point) -> Point) -> Vec<Edge
 	edges
 }
 
-fn deviation(a: Point, b: Point, c: Point) -> f32 {
+fn deviation(a: Pos2, b: Pos2, c: Pos2) -> f32 {
 	let x = a.x - 2.0 * b.x + c.x;
 	let y = a.y - 2.0 * b.y + c.y;
 	(x * x + y * y).sqrt()
