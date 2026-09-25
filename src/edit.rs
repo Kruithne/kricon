@@ -307,6 +307,7 @@ pub struct EditMode {
 	history: History,
 	paste_pending: bool,
 	request: Option<FileAction>,
+	pointer: Option<Pos2>,
 }
 
 impl EditMode {
@@ -337,15 +338,18 @@ impl EditMode {
 			history: History::default(),
 			paste_pending: false,
 			request: None,
+			pointer: None,
 		}
 	}
 
 	pub fn update(&mut self, mesh: &mut Mesh, view: &View, response: &egui::Response) {
 		let keyboard = !response.ctx.egui_wants_keyboard_input();
 		let hovered = response.hovered();
-		let action = response
-			.ctx
-			.input(|input| self.handle_input(mesh, view, input, hovered, keyboard));
+		let action = response.ctx.input(|input| {
+			self.pointer = input.pointer.latest_pos().or(self.pointer);
+			let pointer = self.pointer.unwrap_or(response.rect.center());
+			self.handle_input(mesh, view, input, view.to_world(pointer), hovered, keyboard)
+		});
 		self.handle_paste(mesh, view, response);
 		if let Some((action, cursor)) = action {
 			self.perform(mesh, view, &response.ctx, action, cursor);
@@ -645,11 +649,10 @@ impl EditMode {
 		mesh: &mut Mesh,
 		view: &View,
 		input: &egui::InputState,
+		cursor: Pos2,
 		hovered: bool,
 		keyboard: bool,
 	) -> Option<(Action, Pos2)> {
-		let cursor = view.to_world(input.pointer.latest_pos()?);
-
 		let key = |key: Key| keyboard && input.key_pressed(key);
 		let pressed = |button: PointerButton| input.pointer.button_pressed(button);
 
