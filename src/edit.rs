@@ -58,6 +58,19 @@ const MERGE_MENU: [(Action, &str, &str); 4] = [
 		icon::BORING,
 	),
 ];
+const FILE_MENU: [(Action, &str, &str); 3] = [
+	(Action::File(FileAction::New), "New Workspace", icon::BORING),
+	(
+		Action::File(FileAction::Load),
+		"Load Workspace",
+		icon::BORING,
+	),
+	(
+		Action::File(FileAction::Save),
+		"Save Workspace (Ctrl+S)",
+		icon::BORING,
+	),
+];
 const MAIN_MENU: [(Action, &str, &str); 26] = [
 	(Action::Translate, "Translate (G)", icon::BORING),
 	(Action::Rotate, "Rotate (R)", icon::BORING),
@@ -69,10 +82,10 @@ const MAIN_MENU: [(Action, &str, &str); 26] = [
 	(Action::Subdivide, "Subdivide (Shift+S)", icon::BORING),
 	(
 		Action::SubdivideCurve,
-		"Subdivide Curve (Ctrl+S)",
+		"Subdivide Curve (Alt+S)",
 		icon::BORING,
 	),
-	(Action::Decimate, "Decimate (Alt+S)", icon::BORING),
+	(Action::Decimate, "Decimate (D)", icon::BORING),
 	(Action::Space, "Space Evenly (N)", icon::BORING),
 	(Action::Dissolve, "Dissolve (X)", icon::BORING),
 	(Action::Delete, "Delete (Del)", icon::BORING),
@@ -92,7 +105,15 @@ const MAIN_MENU: [(Action, &str, &str); 26] = [
 ];
 
 #[derive(Clone, Copy)]
+pub enum FileAction {
+	New,
+	Load,
+	Save,
+}
+
+#[derive(Clone, Copy)]
 enum Action {
+	File(FileAction),
 	Undo,
 	Redo,
 	Translate,
@@ -281,6 +302,7 @@ pub struct EditMode {
 	magnet_radius: f32,
 	history: History,
 	paste_pending: bool,
+	request: Option<FileAction>,
 }
 
 impl EditMode {
@@ -293,6 +315,7 @@ impl EditMode {
 			create_menu: Menu::new("Create", icon::BORING).items(&CREATE_MENU),
 			merge_menu: Menu::new("Merge", icon::BORING).items(&MERGE_MENU),
 			main_menu: Menu::new("Menu (Q)", icon::MENU)
+				.items(&FILE_MENU)
 				.submenu(
 					"Create (W)",
 					icon::BORING,
@@ -309,6 +332,7 @@ impl EditMode {
 			magnet_radius: MAGNET_RADIUS,
 			history: History::default(),
 			paste_pending: false,
+			request: None,
 		}
 	}
 
@@ -334,6 +358,24 @@ impl EditMode {
 			Operation::Palette { .. } => self.history.revert(mesh),
 			_ => {}
 		}
+	}
+
+	pub fn reset(&mut self, mesh: &Mesh) {
+		self.operation = Operation::Idle;
+		self.selection = Selection::default();
+		self.history = History::new(mesh);
+	}
+
+	pub fn take_request(&mut self) -> Option<FileAction> {
+		self.request.take()
+	}
+
+	pub fn revision(&self) -> u64 {
+		self.history.revision()
+	}
+
+	pub fn committed(&self) -> &Mesh {
+		self.history.checkpoint()
 	}
 
 	pub fn move_layer(&mut self, mesh: &mut Mesh, from: usize, target: usize) {
@@ -803,6 +845,7 @@ impl EditMode {
 		cursor: Pos2,
 	) {
 		match action {
+			Action::File(action) => self.request = Some(action),
 			Action::Undo => self.history.undo(mesh, &mut self.selection),
 			Action::Redo => self.history.redo(mesh, &mut self.selection),
 			Action::Translate => {
@@ -1177,9 +1220,9 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 	} else if key(Key::R) {
 		Action::Rotate
 	} else if key(Key::S) && modifiers.alt {
-		Action::Decimate
-	} else if key(Key::S) && modifiers.ctrl {
 		Action::SubdivideCurve
+	} else if key(Key::S) && modifiers.ctrl {
+		Action::File(FileAction::Save)
 	} else if key(Key::S) && modifiers.shift {
 		Action::Subdivide
 	} else if key(Key::S) {
@@ -1188,6 +1231,8 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::Connect
 	} else if key(Key::D) && modifiers.shift {
 		Action::Duplicate
+	} else if key(Key::D) {
+		Action::Decimate
 	} else if key(Key::E) {
 		Action::Extrude
 	} else if key(Key::I) {

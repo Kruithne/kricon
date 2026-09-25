@@ -10,8 +10,8 @@ kricon is a purpose-built icon editing utility.
 | `R` | Rotates the selection. |
 | `S` | Scales the selection. |
 | `Shift` + `S` | Subdivides the edges between the selected vertices. |
-| `Ctrl` + `S` | Subdivides the edges between the selected vertices along a curve fitted to the neighbouring vertices. |
-| `Alt` + `S` | Decimates the selected vertices. Removes every second vertex along each chain of selected vertices, the reverse of one subdivision. |
+| `Alt` + `S` | Subdivides the edges between the selected vertices along a curve fitted to the neighbouring vertices. |
+| `D` | Decimates the selected vertices. Removes every second vertex along each chain of selected vertices, the reverse of one subdivision. |
 | `N` | Spaces the selected vertices evenly along each chain of selected vertices. The ends of each chain stay in place. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
 | `Alt` | Snaps the translated selection to the grid while held. |
@@ -30,6 +30,7 @@ kricon is a purpose-built icon editing utility.
 | `A` | Selects all vertices. Deselects everything if something is already selected. |
 | `L` | Selects all linked vertices to the currently selected. |
 | `T` | Selects the edges that continue the path of the selected edges. For example, select one edge of an inset circle to select the full inner circle. |
+| `Ctrl` + `S` | Saves the workspace. Asks for a file if the workspace has no file yet. |
 | `Q` | Opens the menu of all actions at the cursor. The button in the top left also opens it. |
 | `W` | Opens the create menu. |
 | `Shift` + `Scroll` | Scales the new primitive before placement. `Scroll` sets the vertex count of a new circle or curve. |

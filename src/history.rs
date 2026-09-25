@@ -42,6 +42,7 @@ impl<T: Clone + PartialEq> Splice<T> {
 }
 
 struct Entry {
+	id: u64,
 	change: Change,
 	before: Selection,
 	after: Selection,
@@ -52,9 +53,26 @@ pub struct History {
 	checkpoint: Mesh,
 	undo: VecDeque<Entry>,
 	redo: Vec<Entry>,
+	next_id: u64,
+	base: u64,
 }
 
 impl History {
+	pub fn new(mesh: &Mesh) -> Self {
+		Self {
+			checkpoint: mesh.clone(),
+			..Default::default()
+		}
+	}
+
+	pub fn checkpoint(&self) -> &Mesh {
+		&self.checkpoint
+	}
+
+	pub fn revision(&self) -> u64 {
+		self.undo.back().map_or(self.base, |entry| entry.id)
+	}
+
 	pub fn commit(&mut self, mesh: &Mesh, before: Selection, after: &Selection) {
 		let change = self.checkpoint.diff(mesh);
 		if change.is_empty() {
@@ -62,11 +80,15 @@ impl History {
 		}
 
 		self.checkpoint.apply(&change, true);
-		if self.undo.len() == MAX_ENTRIES {
-			self.undo.pop_front();
+		if self.undo.len() == MAX_ENTRIES
+			&& let Some(entry) = self.undo.pop_front()
+		{
+			self.base = entry.id;
 		}
 
+		self.next_id += 1;
 		self.undo.push_back(Entry {
+			id: self.next_id,
 			change,
 			before,
 			after: after.clone(),

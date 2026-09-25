@@ -4,6 +4,7 @@ use eframe::egui::{
 	epaint::Vertex, pos2, vec2,
 };
 use image::imageops::FilterType;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -16,24 +17,42 @@ const UVS: [Pos2; 4] = [
 	pos2(0.0, 1.0),
 ];
 
-#[derive(Clone, PartialEq)]
+pub struct Decoded {
+	pub source: Arc<[u8]>,
+	pub pixels: ColorImage,
+}
+
+#[derive(Clone)]
 pub struct Image {
 	texture: TextureHandle,
+	pub source: Arc<[u8]>,
 	pub corners: [Pos2; 4],
 }
 
+impl PartialEq for Image {
+	fn eq(&self, other: &Self) -> bool {
+		self.texture == other.texture && self.corners == other.corners
+	}
+}
+
 impl Image {
-	pub fn new(ctx: &egui::Context, pixels: ColorImage, center: Pos2) -> Self {
-		let [width, height] = pixels.size.map(|side| side as f32);
+	pub fn new(ctx: &egui::Context, decoded: Decoded, center: Pos2) -> Self {
+		let [width, height] = decoded.pixels.size.map(|side| side as f32);
 		let half = vec2(width, height) * (IMAGE_SIZE / width.max(height) / 2.0);
+		let corners = [
+			center - half,
+			center + vec2(half.x, -half.y),
+			center + half,
+			center + vec2(-half.x, half.y),
+		];
+		Self::with_corners(ctx, decoded, corners)
+	}
+
+	pub fn with_corners(ctx: &egui::Context, decoded: Decoded, corners: [Pos2; 4]) -> Self {
 		Self {
-			texture: ctx.load_texture("image", pixels, TextureOptions::LINEAR),
-			corners: [
-				center - half,
-				center + vec2(half.x, -half.y),
-				center + half,
-				center + vec2(-half.x, half.y),
-			],
+			texture: ctx.load_texture("image", decoded.pixels, TextureOptions::LINEAR),
+			source: decoded.source,
+			corners,
 		}
 	}
 
@@ -58,8 +77,8 @@ impl Image {
 }
 
 pub struct Loader {
-	sender: Sender<ColorImage>,
-	receiver: Receiver<ColorImage>,
+	sender: Sender<Decoded>,
+	receiver: Receiver<Decoded>,
 }
 
 impl Loader {
@@ -69,16 +88,14 @@ impl Loader {
 	}
 
 	pub fn load(&self, ctx: &egui::Context, files: Vec<DroppedFileHandle>) {
-		let max_side = ctx
-			.input(|input| input.max_texture_side)
-			.min(MAX_IMAGE_SIDE) as u32;
-
+		let max_side = max_side(ctx);
 		for file in files {
 			let sender = self.sender.clone();
 			let ctx = ctx.clone();
 			thread::spawn(move || {
-				if let Some(pixels) = decode(&file, max_side)
-					&& sender.send(pixels).is_ok()
+				if let Ok(bytes) = file.bytes()
+					&& let Some(decoded) = decode(bytes.into(), max_side)
+					&& sender.send(decoded).is_ok()
 				{
 					ctx.request_repaint();
 				}
@@ -86,19 +103,26 @@ impl Loader {
 		}
 	}
 
-	pub fn receive(&self) -> impl Iterator<Item = ColorImage> {
+	pub fn receive(&self) -> impl Iterator<Item = Decoded> {
 		self.receiver.try_iter()
 	}
 }
 
-fn decode(file: &DroppedFileHandle, max_side: u32) -> Option<ColorImage> {
-	let bytes = file.bytes().ok()?;
-	let mut image = image::load_from_memory(&bytes).ok()?;
+pub fn max_side(ctx: &egui::Context) -> u32 {
+	ctx.input(|input| input.max_texture_side)
+		.min(MAX_IMAGE_SIDE) as u32
+}
+
+pub fn decode(source: Arc<[u8]>, max_side: u32) -> Option<Decoded> {
+	let mut image = image::load_from_memory(&source).ok()?;
 	if image.width().max(image.height()) > max_side {
 		image = image.resize(max_side, max_side, FilterType::Triangle);
 	}
 
 	let rgba = image.to_rgba8();
 	let size = [rgba.width() as usize, rgba.height() as usize];
-	Some(ColorImage::from_rgba_unmultiplied(size, &rgba))
+	Some(Decoded {
+		source,
+		pixels: ColorImage::from_rgba_unmultiplied(size, &rgba),
+	})
 }

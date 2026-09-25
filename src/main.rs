@@ -11,15 +11,19 @@ mod panel;
 mod spacing;
 mod svg;
 mod view;
+mod workspace;
 
-use edit::EditMode;
+use edit::{EditMode, FileAction};
 use eframe::egui;
 use icon::Icon;
 use images::{Image, Loader};
 use layers::Layers;
 use mesh::Mesh;
 use spacing::Spacing;
+use std::io;
+use std::path::{Path, PathBuf};
 use view::View;
+use workspace::{Loaded, Meta, Workspace};
 
 const ICON_PNG: &[u8] = include_bytes!("../res/kricon.png");
 const GRID_SPACING: f32 = 32.0;
@@ -43,6 +47,8 @@ struct App {
 	menu_icon: Icon,
 	images_icon: Icon,
 	outlines_icon: Icon,
+	workspace: Workspace,
+	title: String,
 }
 
 impl App {
@@ -81,10 +87,137 @@ impl App {
 		let dropped = ctx.input(|input| input.raw.dropped_files.clone());
 		self.loader.load(ctx, dropped);
 
-		for pixels in self.loader.receive() {
+		for decoded in self.loader.receive() {
 			let pos = ctx.pointer_latest_pos().unwrap_or(rect.center());
-			let image = Image::new(ctx, pixels, self.view.to_world(pos));
+			let image = Image::new(ctx, decoded, self.view.to_world(pos));
 			self.edit.add_image(&mut self.mesh, image);
+		}
+	}
+
+	fn handle_files(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+		let request = self.edit.take_request();
+		if !self.workspace.is_busy() {
+			match request {
+				Some(FileAction::New) => self.new_workspace(frame),
+				Some(FileAction::Load) => self.load_workspace(ctx, frame),
+				Some(FileAction::Save) => self.save_workspace(ctx, frame),
+				None => {}
+			}
+		}
+
+		if let Some(Err(error)) = self.workspace.poll_save() {
+			show_error(frame, "Save Failed", &error);
+		}
+
+		match self.workspace.poll_load() {
+			Some(Ok(loaded)) => self.open(ctx, loaded),
+			Some(Err(error)) => show_error(frame, "Load Failed", &error),
+			None => {}
+		}
+
+		if self.workspace.autosave_due(ctx)
+			&& self.is_dirty()
+			&& !self.workspace.is_busy()
+			&& let Some(path) = self.workspace.path.clone()
+		{
+			self.save(ctx, path);
+		}
+
+		self.update_title(ctx);
+	}
+
+	fn is_dirty(&self) -> bool {
+		self.workspace.is_dirty(self.edit.revision())
+	}
+
+	fn confirm_discard(&self, frame: &eframe::Frame) -> bool {
+		!self.is_dirty()
+			|| rfd::MessageDialog::new()
+				.set_parent(frame)
+				.set_level(rfd::MessageLevel::Warning)
+				.set_title("Unsaved Changes")
+				.set_description("The workspace has unsaved changes. Discard them?")
+				.set_buttons(rfd::MessageButtons::YesNo)
+				.show() == rfd::MessageDialogResult::Yes
+	}
+
+	fn new_workspace(&mut self, frame: &eframe::Frame) {
+		if !self.confirm_discard(frame) {
+			return;
+		}
+
+		self.mesh = Mesh::default();
+		self.edit.reset(&self.mesh);
+		self.workspace.reset(None, self.edit.revision());
+	}
+
+	fn load_workspace(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+		if !self.confirm_discard(frame) {
+			return;
+		}
+
+		if let Some(path) = file_dialog(frame).pick_file() {
+			self.workspace.load(ctx, path);
+		}
+	}
+
+	fn save_workspace(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+		let path = self
+			.workspace
+			.path
+			.clone()
+			.or_else(|| file_dialog(frame).save_file());
+		if let Some(path) = path {
+			self.save(ctx, path.with_extension(workspace::EXTENSION));
+		}
+	}
+
+	fn save(&mut self, ctx: &egui::Context, path: PathBuf) {
+		let meta = Meta {
+			offset: self.view.offset,
+			scale: self.view.scale,
+			face_opacity: self.face_opacity,
+			spacing: self.spacing.distance,
+		};
+		self.workspace.save(
+			ctx,
+			path,
+			self.edit.committed().clone(),
+			meta,
+			self.edit.revision(),
+		);
+	}
+
+	fn open(&mut self, ctx: &egui::Context, loaded: Loaded) {
+		let mut mesh = loaded.mesh;
+		for (decoded, corners) in loaded.images {
+			mesh.images.push(Image::with_corners(ctx, decoded, corners));
+		}
+
+		self.mesh = mesh;
+		self.edit.reset(&self.mesh);
+		self.workspace
+			.reset(Some(loaded.path), self.edit.revision());
+		if let Some(meta) = loaded.meta {
+			self.view.offset = meta.offset;
+			self.view.scale = meta.scale;
+			self.face_opacity = meta.face_opacity;
+			self.spacing.distance = meta.spacing;
+		}
+	}
+
+	fn update_title(&mut self, ctx: &egui::Context) {
+		let name = self
+			.workspace
+			.path
+			.as_deref()
+			.and_then(Path::file_name)
+			.map_or("Untitled".into(), |name| name.to_string_lossy());
+		let dirty = if self.is_dirty() { "*" } else { "" };
+		let title = format!("kricon - {name}{dirty}");
+		if title != self.title {
+			ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+			self.title = title;
 		}
 	}
 
@@ -148,7 +281,7 @@ impl App {
 }
 
 impl eframe::App for App {
-	fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let rect = ui.max_rect();
 		let response = ui.interact(
 			rect,
@@ -163,6 +296,7 @@ impl eframe::App for App {
 		);
 
 		self.edit.update(&mut self.mesh, &self.view, &response);
+		self.handle_files(ui.ctx(), frame);
 		self.load_images(ui.ctx(), rect);
 
 		let painter = ui.painter();
@@ -205,6 +339,21 @@ fn button(ui: &mut egui::Ui, icon: &mut Icon, active: bool) -> egui::Response {
 			response
 		})
 		.inner
+}
+
+fn file_dialog(frame: &eframe::Frame) -> rfd::FileDialog {
+	rfd::FileDialog::new()
+		.set_parent(frame)
+		.add_filter("kricon Workspace", &[workspace::EXTENSION])
+}
+
+fn show_error(frame: &eframe::Frame, title: &str, error: &io::Error) {
+	rfd::MessageDialog::new()
+		.set_parent(frame)
+		.set_level(rfd::MessageLevel::Error)
+		.set_title(title)
+		.set_description(error.to_string())
+		.show();
 }
 
 fn slider(ui: &mut egui::Ui, value: &mut f32, max: f32) -> egui::Response {
@@ -267,6 +416,8 @@ fn main() -> eframe::Result {
 				menu_icon: Icon::new(icon::MENU),
 				images_icon: Icon::new(icon::BORING),
 				outlines_icon: Icon::new(icon::BORING),
+				workspace: Workspace::new(),
+				title: String::new(),
 			}))
 		}),
 	)

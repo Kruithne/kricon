@@ -23,9 +23,9 @@ pub struct Mesh {
 	pub vertices: Vec<Pos2>,
 	pub edges: Vec<[usize; 2]>,
 	pub layers: Vec<Layer>,
-	vertex_layers: Vec<u32>,
-	holes: Vec<Vec<usize>>,
-	colors: Vec<(Vec<usize>, Color32)>,
+	pub vertex_layers: Vec<u32>,
+	pub holes: Vec<Vec<usize>>,
+	pub colors: Vec<(Vec<usize>, Color32)>,
 	pub images: Vec<Image>,
 }
 
