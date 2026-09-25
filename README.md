@@ -6,14 +6,14 @@ kricon is a purpose-built icon editing utility.
 
 | Key | Action |
 | --- | --- |
-| `G` | Translates the selected vertices. |
-| `R` | Rotates the selected vertices. |
-| `S` | Scales the selected vertices. |
+| `G` | Translates the selection. |
+| `R` | Rotates the selection. |
+| `S` | Scales the selection. |
 | `Shift` + `S` | Subdivides the edges between the selected vertices. |
 | `Ctrl` + `S` | Subdivides the edges between the selected vertices along a curve fitted to the neighbouring vertices. |
 | `Alt` + `S` | Decimates the selected vertices. Removes every second vertex along each chain of selected vertices, the reverse of one subdivision. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
-| `Alt` | Snaps the translated vertices to the grid while held. |
+| `Alt` | Snaps the translated selection to the grid while held. |
 | `Shift` | Snaps the translated vertices to the X or Y of a nearby vertex while held. A guide line shows each snap. |
 | `0`-`9` / `-` | Rotates by the typed angle in degrees. A negative angle rotates clockwise. |
 | `Enter` | Confirms the current transform. |
@@ -22,7 +22,7 @@ kricon is a purpose-built icon editing utility.
 | `Shift` + `D` | Duplicates the selected vertices. |
 | `F` | Connects the two selected vertices with an edge. |
 | `V` | Adds a vertex at the cursor. |
-| `Right Click` | Selects the vertex at the cursor, or the vertices of the face at the cursor. |
+| `Right Click` | Selects the vertex, face or image at the cursor. |
 | `C` | Toggles brush selection. `Scroll` sets the size, `Left Click` selects and `Middle Click` deselects. |
 | `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
 | `L` | Selects all linked vertices to the currently selected. |
@@ -31,7 +31,7 @@ kricon is a purpose-built icon editing utility.
 | `M` | Opens the merge menu. |
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
 | `P` | Toggles a hole in the faces enclosed by the selected vertices. |
-| `Delete` | Deletes the selected vertices. |
+| `Delete` | Deletes the selection. |
 
 ## <img src="res/icons/ico_boring.svg" width="18"> Legal
 
