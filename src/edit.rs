@@ -37,42 +37,85 @@ const BRUSH_RADIUS: f32 = 24.0;
 const BRUSH_STEP: f32 = 4.0;
 const MIN_BRUSH_RADIUS: f32 = 4.0;
 const MAX_BRUSH_RADIUS: f32 = 256.0;
-const CREATE_MENU: [(MenuAction, &str, &str); 4] = [
-	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
-	(MenuAction::AddRect, "Add Rect", icon::BORING),
-	(MenuAction::AddCircle, "Add Circle", icon::BORING),
-	(MenuAction::AddCurve, "Add Curve", icon::BORING),
+const CREATE_MENU: [(Action, &str, &str); 4] = [
+	(Action::AddVertex, "Add Vertex (V)", icon::BORING),
+	(Action::AddRect, "Add Rect", icon::BORING),
+	(Action::AddCircle, "Add Circle", icon::BORING),
+	(Action::AddCurve, "Add Curve", icon::BORING),
 ];
-const MERGE_MENU: [(MenuAction, &str, &str); 4] = [
+const MERGE_MENU: [(Action, &str, &str); 4] = [
+	(Action::Merge(MergeTarget::Last), "At Last", icon::BORING),
 	(
-		MenuAction::Merge(MergeTarget::Last),
-		"At Last",
-		icon::BORING,
-	),
-	(
-		MenuAction::Merge(MergeTarget::Center),
+		Action::Merge(MergeTarget::Center),
 		"At Center",
 		icon::BORING,
 	),
+	(Action::Merge(MergeTarget::First), "At First", icon::BORING),
 	(
-		MenuAction::Merge(MergeTarget::First),
-		"At First",
-		icon::BORING,
-	),
-	(
-		MenuAction::Merge(MergeTarget::Cursor),
+		Action::Merge(MergeTarget::Cursor),
 		"At Cursor",
 		icon::BORING,
 	),
 ];
+const MAIN_MENU: [(Action, &str, &str); 22] = [
+	(Action::Translate, "Translate (G)", icon::BORING),
+	(Action::Rotate, "Rotate (R)", icon::BORING),
+	(Action::Scale, "Scale (S)", icon::BORING),
+	(Action::Extrude, "Extrude (E)", icon::BORING),
+	(Action::Duplicate, "Duplicate (Shift+D)", icon::BORING),
+	(Action::Inset, "Inset (I)", icon::BORING),
+	(Action::Connect, "Connect (F)", icon::BORING),
+	(Action::Subdivide, "Subdivide (Shift+S)", icon::BORING),
+	(
+		Action::SubdivideCurve,
+		"Subdivide Curve (Ctrl+S)",
+		icon::BORING,
+	),
+	(Action::Decimate, "Decimate (Alt+S)", icon::BORING),
+	(Action::Space, "Space Evenly (H)", icon::BORING),
+	(Action::Dissolve, "Dissolve (X)", icon::BORING),
+	(Action::Delete, "Delete (Del)", icon::BORING),
+	(Action::SelectLinked, "Select Linked (L)", icon::BORING),
+	(Action::Brush, "Brush Select (C)", icon::BORING),
+	(Action::BoxSelect, "Box Select (B)", icon::BORING),
+	(Action::ToggleHole, "Toggle Hole (P)", icon::BORING),
+	(Action::Palette, "Set Colour (Y)", icon::BORING),
+	(Action::CopyColor, "Copy Colour (Ctrl+Y)", icon::BORING),
+	(Action::PasteColor, "Paste Colour (Shift+Y)", icon::BORING),
+	(Action::Undo, "Undo (Ctrl+Z)", icon::BORING),
+	(Action::Redo, "Redo (Ctrl+R)", icon::BORING),
+];
 
 #[derive(Clone, Copy)]
-enum MenuAction {
+enum Action {
+	Undo,
+	Redo,
+	Translate,
+	Rotate,
+	Scale,
+	Subdivide,
+	SubdivideCurve,
+	Decimate,
+	Space,
+	Extrude,
+	Duplicate,
+	Inset,
+	Connect,
 	AddVertex,
 	AddRect,
 	AddCircle,
 	AddCurve,
+	SelectLinked,
+	Brush,
+	BoxSelect,
+	Menu(MenuKind),
 	Merge(MergeTarget),
+	Dissolve,
+	ToggleHole,
+	Palette,
+	CopyColor,
+	PasteColor,
+	Delete,
 }
 
 #[derive(Clone, Copy)]
@@ -100,6 +143,9 @@ enum Operation {
 	Menu {
 		pos: Pos2,
 		kind: MenuKind,
+	},
+	MainMenu {
+		anchor: Pos2,
 	},
 	Brush,
 	BoxSelect {
@@ -214,8 +260,9 @@ pub struct Selection {
 pub struct EditMode {
 	selection: Selection,
 	operation: Operation,
-	create_menu: Menu<MenuAction>,
-	merge_menu: Menu<MenuAction>,
+	create_menu: Menu<Action>,
+	merge_menu: Menu<Action>,
+	main_menu: Menu<Action>,
 	brush_radius: f32,
 	history: History,
 	paste_pending: bool,
@@ -226,8 +273,20 @@ impl EditMode {
 		Self {
 			selection: Selection::default(),
 			operation: Operation::Idle,
-			create_menu: Menu::new("Create", icon::BORING, &CREATE_MENU),
-			merge_menu: Menu::new("Merge", icon::BORING, &MERGE_MENU),
+			create_menu: Menu::new("Create", icon::BORING).items(&CREATE_MENU),
+			merge_menu: Menu::new("Merge", icon::BORING).items(&MERGE_MENU),
+			main_menu: Menu::new("Menu", icon::MENU)
+				.submenu(
+					"Create (W)",
+					icon::BORING,
+					Menu::new("Create", icon::BORING).items(&CREATE_MENU),
+				)
+				.submenu(
+					"Merge (M)",
+					icon::BORING,
+					Menu::new("Merge", icon::BORING).items(&MERGE_MENU),
+				)
+				.items(&MAIN_MENU),
 			brush_radius: BRUSH_RADIUS,
 			history: History::default(),
 			paste_pending: false,
@@ -237,10 +296,13 @@ impl EditMode {
 	pub fn update(&mut self, mesh: &mut Mesh, view: &View, response: &egui::Response) {
 		let keyboard = !response.ctx.egui_wants_keyboard_input();
 		let hovered = response.hovered();
-		response
+		let action = response
 			.ctx
 			.input(|input| self.handle_input(mesh, view, input, hovered, keyboard));
-		self.handle_clipboard(mesh, &response.ctx, keyboard);
+		self.handle_paste(mesh, &response.ctx);
+		if let Some((action, cursor)) = action {
+			self.perform(mesh, view, &response.ctx, action, cursor);
+		}
 		self.settle_selection();
 	}
 
@@ -258,6 +320,19 @@ impl EditMode {
 	pub fn move_layer(&mut self, mesh: &mut Mesh, from: usize, target: usize) {
 		self.cancel(mesh);
 		self.record(mesh, |_, mesh| mesh.move_layer(from, target));
+	}
+
+	pub fn toggle_menu(&mut self, mesh: &mut Mesh, anchor: Pos2) {
+		let open = self.menu_open();
+		self.cancel(mesh);
+		if !open {
+			self.main_menu.reset();
+			self.operation = Operation::MainMenu { anchor };
+		}
+	}
+
+	pub fn menu_open(&self) -> bool {
+		matches!(self.operation, Operation::MainMenu { .. })
 	}
 
 	pub fn captures_scroll(&self) -> bool {
@@ -319,44 +394,25 @@ impl EditMode {
 		view: &View,
 		accent: Color32,
 	) {
-		let Operation::Menu { pos, kind } = self.operation else {
-			return;
+		let pointer = ctx.pointer_latest_pos().unwrap_or_default();
+		let (menu, anchor, pos) = match self.operation {
+			Operation::Menu {
+				pos,
+				kind: MenuKind::Create,
+			} => (&mut self.create_menu, view.to_screen(pos), pos),
+			Operation::Menu {
+				pos,
+				kind: MenuKind::Merge,
+			} => (&mut self.merge_menu, view.to_screen(pos), pos),
+			Operation::MainMenu { anchor } => (&mut self.main_menu, anchor, view.to_world(pointer)),
+			_ => return,
 		};
-
-		let menu = match kind {
-			MenuKind::Create => &mut self.create_menu,
-			MenuKind::Merge => &mut self.merge_menu,
-		};
-		let Some(action) = menu.show(ctx, view.to_screen(pos), accent) else {
+		let Some(action) = menu.show(ctx, anchor, accent) else {
 			return;
 		};
 
 		self.operation = Operation::Idle;
-		match action {
-			MenuAction::AddVertex => {
-				self.record(mesh, |edit, mesh| {
-					edit.selection.vertices = vec![mesh.add_vertex(pos)]
-				});
-			}
-			MenuAction::AddRect => self.add_primitive(mesh, &rect_points(pos), pos, None, false),
-			MenuAction::AddCircle => self.add_primitive(
-				mesh,
-				&circle_points(pos, CIRCLE_SEGMENTS, CIRCLE_RADIUS),
-				pos,
-				Some(CIRCLE_SEGMENTS),
-				false,
-			),
-			MenuAction::AddCurve => self.add_primitive(
-				mesh,
-				&circle_points(pos, CURVE_POINTS, CIRCLE_RADIUS),
-				pos,
-				Some(CURVE_POINTS),
-				true,
-			),
-			MenuAction::Merge(target) => {
-				self.record(mesh, |edit, mesh| edit.merge(mesh, target, pos));
-			}
-		}
+		self.perform(mesh, view, ctx, action, pos);
 		self.settle_selection();
 	}
 
@@ -470,109 +526,16 @@ impl EditMode {
 		input: &egui::InputState,
 		hovered: bool,
 		keyboard: bool,
-	) {
-		let Some(cursor) = input.pointer.latest_pos().map(|pos| view.to_world(pos)) else {
-			return;
-		};
+	) -> Option<(Action, Pos2)> {
+		let cursor = view.to_world(input.pointer.latest_pos()?);
 
 		let key = |key: Key| keyboard && input.key_pressed(key);
 		let pressed = |button: PointerButton| input.pointer.button_pressed(button);
 
 		match &mut self.operation {
 			Operation::Idle => {
-				if key(Key::Z) && input.modifiers.ctrl {
-					self.history.undo(mesh, &mut self.selection);
-				} else if key(Key::R) && input.modifiers.ctrl {
-					self.history.redo(mesh, &mut self.selection);
-				} else if key(Key::G) {
-					self.begin_transform(
-						mesh,
-						TransformKind::Translate,
-						cursor,
-						false,
-						self.selection.vertices.clone(),
-					);
-				} else if key(Key::R) {
-					self.begin_transform(
-						mesh,
-						TransformKind::Rotate,
-						cursor,
-						false,
-						self.selection.vertices.clone(),
-					);
-				} else if key(Key::S) && input.modifiers.alt {
-					self.record(mesh, |edit, mesh| {
-						edit.selection.vertices = mesh.decimate(&edit.selection.vertices);
-					});
-				} else if key(Key::S) && (input.modifiers.shift || input.modifiers.ctrl) {
-					self.record(mesh, |edit, mesh| {
-						let midpoints =
-							mesh.subdivide(&edit.selection.vertices, input.modifiers.ctrl);
-						edit.extend_selection(midpoints);
-					});
-				} else if key(Key::S) {
-					self.begin_transform(
-						mesh,
-						TransformKind::Scale,
-						cursor,
-						false,
-						self.selection.vertices.clone(),
-					);
-				} else if key(Key::F) {
-					if let [a, b] = self.selection.vertices[..] {
-						self.record(mesh, |_, mesh| mesh.add_edge(a, b));
-					}
-				} else if key(Key::D) && input.modifiers.shift {
-					self.create(mesh, cursor, Mesh::duplicate);
-				} else if key(Key::E) {
-					self.create(mesh, cursor, Mesh::extrude);
-				} else if key(Key::I) {
-					self.inset(mesh, cursor);
-				} else if key(Key::V) {
-					self.record(mesh, |edit, mesh| {
-						edit.selection.vertices = vec![mesh.add_vertex(cursor)]
-					});
-				} else if key(Key::L) {
-					if self.selection.vertices.is_empty() {
-						let radius = LINK_PICK_RADIUS / view.scale;
-						self.selection
-							.vertices
-							.extend(mesh.nearest_vertex(cursor, radius));
-					}
-					self.extend_selection(mesh.linked(&self.selection.vertices));
-				} else if key(Key::W) {
-					self.operation = Operation::Menu {
-						pos: cursor,
-						kind: MenuKind::Create,
-					};
-				} else if key(Key::M) {
-					self.operation = Operation::Menu {
-						pos: cursor,
-						kind: MenuKind::Merge,
-					};
-				} else if key(Key::X) {
-					self.record(mesh, |edit, mesh| {
-						mesh.dissolve(std::mem::take(&mut edit.selection.vertices));
-					});
-				} else if key(Key::H) {
-					self.record(mesh, |edit, mesh| mesh.space(&edit.selection.vertices));
-				} else if key(Key::P) {
-					self.record(mesh, |edit, mesh| {
-						mesh.toggle_hole(&edit.selection.vertices)
-					});
-				} else if key(Key::Y) && input.modifiers.is_none() {
-					if let Some(color) = mesh.face_color(&self.selection.vertices) {
-						self.operation = Operation::Palette { pos: cursor, color };
-					}
-				} else if key(Key::C) {
-					self.operation = Operation::Brush;
-				} else if key(Key::B) {
-					self.operation = Operation::BoxSelect { start: None };
-				} else if key(Key::Delete) {
-					self.record(mesh, |edit, mesh| {
-						mesh.remove_vertices(std::mem::take(&mut edit.selection.vertices));
-						mesh.remove_images(std::mem::take(&mut edit.selection.images));
-					});
+				if keyboard && let Some(action) = key_action(input) {
+					return Some((action, cursor));
 				} else if hovered && pressed(PointerButton::Secondary) {
 					let radius = VERTEX_HIT_RADIUS / view.scale;
 					let hit = mesh.nearest_vertex(cursor, radius);
@@ -724,7 +687,7 @@ impl EditMode {
 					*start = Some(cursor);
 				}
 			}
-			Operation::Menu { .. } => {
+			Operation::Menu { .. } | Operation::MainMenu { .. } => {
 				if key(Key::Escape) || (hovered && input.pointer.any_pressed()) {
 					self.operation = Operation::Idle;
 				}
@@ -737,37 +700,138 @@ impl EditMode {
 				}
 			}
 		}
+
+		None
 	}
 
-	fn handle_clipboard(&mut self, mesh: &mut Mesh, ctx: &egui::Context, keyboard: bool) {
-		let (copy, paste, pasted) = ctx.input(|input| {
-			let key = keyboard && input.key_pressed(Key::Y);
-			let pasted = input.events.iter().find_map(|event| match event {
-				Event::Paste(text) => Some(text.clone()),
-				_ => None,
-			});
-			(
-				key && input.modifiers.ctrl,
-				key && input.modifiers.shift,
-				pasted,
-			)
-		});
-
+	fn handle_paste(&mut self, mesh: &mut Mesh, ctx: &egui::Context) {
 		let pending = std::mem::replace(&mut self.paste_pending, false);
-		if !matches!(self.operation, Operation::Idle) {
+		if !pending || !matches!(self.operation, Operation::Idle) {
 			return;
 		}
 
-		if copy && let Some(color) = mesh.face_color(&self.selection.vertices) {
-			ctx.copy_text(HexColor::Hex6(color).to_string());
-		} else if paste {
-			self.paste_pending = true;
-			ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-			ctx.request_repaint();
-		} else if pending && let Some(color) = pasted.as_deref().and_then(parse_color) {
+		let pasted = ctx.input(|input| {
+			input.events.iter().find_map(|event| match event {
+				Event::Paste(text) => Some(text.clone()),
+				_ => None,
+			})
+		});
+		if let Some(color) = pasted.as_deref().and_then(parse_color) {
 			self.record(mesh, |edit, mesh| {
 				mesh.set_color(&edit.selection.vertices, color)
 			});
+		}
+	}
+
+	fn perform(
+		&mut self,
+		mesh: &mut Mesh,
+		view: &View,
+		ctx: &egui::Context,
+		action: Action,
+		cursor: Pos2,
+	) {
+		match action {
+			Action::Undo => self.history.undo(mesh, &mut self.selection),
+			Action::Redo => self.history.redo(mesh, &mut self.selection),
+			Action::Translate => self.begin_transform(
+				mesh,
+				TransformKind::Translate,
+				cursor,
+				false,
+				self.selection.vertices.clone(),
+			),
+			Action::Rotate => self.begin_transform(
+				mesh,
+				TransformKind::Rotate,
+				cursor,
+				false,
+				self.selection.vertices.clone(),
+			),
+			Action::Scale => self.begin_transform(
+				mesh,
+				TransformKind::Scale,
+				cursor,
+				false,
+				self.selection.vertices.clone(),
+			),
+			Action::Subdivide | Action::SubdivideCurve => {
+				let smooth = matches!(action, Action::SubdivideCurve);
+				self.record(mesh, |edit, mesh| {
+					let midpoints = mesh.subdivide(&edit.selection.vertices, smooth);
+					edit.extend_selection(midpoints);
+				});
+			}
+			Action::Decimate => self.record(mesh, |edit, mesh| {
+				edit.selection.vertices = mesh.decimate(&edit.selection.vertices);
+			}),
+			Action::Space => self.record(mesh, |edit, mesh| mesh.space(&edit.selection.vertices)),
+			Action::Extrude => self.create(mesh, cursor, Mesh::extrude),
+			Action::Duplicate => self.create(mesh, cursor, Mesh::duplicate),
+			Action::Inset => self.inset(mesh, cursor),
+			Action::Connect => {
+				if let [a, b] = self.selection.vertices[..] {
+					self.record(mesh, |_, mesh| mesh.add_edge(a, b));
+				}
+			}
+			Action::AddVertex => self.record(mesh, |edit, mesh| {
+				edit.selection.vertices = vec![mesh.add_vertex(cursor)]
+			}),
+			Action::AddRect => self.add_primitive(mesh, &rect_points(cursor), cursor, None, false),
+			Action::AddCircle => self.add_primitive(
+				mesh,
+				&circle_points(cursor, CIRCLE_SEGMENTS, CIRCLE_RADIUS),
+				cursor,
+				Some(CIRCLE_SEGMENTS),
+				false,
+			),
+			Action::AddCurve => self.add_primitive(
+				mesh,
+				&circle_points(cursor, CURVE_POINTS, CIRCLE_RADIUS),
+				cursor,
+				Some(CURVE_POINTS),
+				true,
+			),
+			Action::SelectLinked => {
+				if self.selection.vertices.is_empty() {
+					let radius = LINK_PICK_RADIUS / view.scale;
+					self.selection
+						.vertices
+						.extend(mesh.nearest_vertex(cursor, radius));
+				}
+				self.extend_selection(mesh.linked(&self.selection.vertices));
+			}
+			Action::Brush => self.operation = Operation::Brush,
+			Action::BoxSelect => self.operation = Operation::BoxSelect { start: None },
+			Action::Menu(kind) => self.operation = Operation::Menu { pos: cursor, kind },
+			Action::Merge(target) => {
+				self.record(mesh, |edit, mesh| edit.merge(mesh, target, cursor));
+			}
+			Action::Dissolve => self.record(mesh, |edit, mesh| {
+				mesh.dissolve(std::mem::take(&mut edit.selection.vertices));
+			}),
+			Action::ToggleHole => self.record(mesh, |edit, mesh| {
+				mesh.toggle_hole(&edit.selection.vertices)
+			}),
+			Action::Palette => {
+				if let Some(color) = mesh.face_color(&self.selection.vertices) {
+					self.operation = Operation::Palette { pos: cursor, color };
+				}
+			}
+			Action::CopyColor => {
+				if let Some(color) = mesh.face_color(&self.selection.vertices) {
+					ctx.copy_text(HexColor::Hex6(color).to_string());
+				}
+			}
+			Action::PasteColor => {
+				self.paste_pending = true;
+				ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+				ctx.request_repaint();
+			}
+			Action::Delete => self.record(mesh, |edit, mesh| {
+				mesh.remove_vertices(std::mem::take(&mut edit.selection.vertices));
+				mesh.remove_images(std::mem::take(&mut edit.selection.images));
+			}),
 		}
 	}
 
@@ -981,6 +1045,65 @@ impl EditMode {
 			guides: [None; 2],
 		});
 	}
+}
+
+fn key_action(input: &egui::InputState) -> Option<Action> {
+	let key = |key: Key| input.key_pressed(key);
+	let modifiers = input.modifiers;
+	let action = if key(Key::Z) && modifiers.ctrl {
+		Action::Undo
+	} else if key(Key::R) && modifiers.ctrl {
+		Action::Redo
+	} else if key(Key::G) {
+		Action::Translate
+	} else if key(Key::R) {
+		Action::Rotate
+	} else if key(Key::S) && modifiers.alt {
+		Action::Decimate
+	} else if key(Key::S) && modifiers.ctrl {
+		Action::SubdivideCurve
+	} else if key(Key::S) && modifiers.shift {
+		Action::Subdivide
+	} else if key(Key::S) {
+		Action::Scale
+	} else if key(Key::F) {
+		Action::Connect
+	} else if key(Key::D) && modifiers.shift {
+		Action::Duplicate
+	} else if key(Key::E) {
+		Action::Extrude
+	} else if key(Key::I) {
+		Action::Inset
+	} else if key(Key::V) {
+		Action::AddVertex
+	} else if key(Key::L) {
+		Action::SelectLinked
+	} else if key(Key::W) {
+		Action::Menu(MenuKind::Create)
+	} else if key(Key::M) {
+		Action::Menu(MenuKind::Merge)
+	} else if key(Key::X) {
+		Action::Dissolve
+	} else if key(Key::H) {
+		Action::Space
+	} else if key(Key::P) {
+		Action::ToggleHole
+	} else if key(Key::Y) && modifiers.ctrl {
+		Action::CopyColor
+	} else if key(Key::Y) && modifiers.shift {
+		Action::PasteColor
+	} else if key(Key::Y) && modifiers.is_none() {
+		Action::Palette
+	} else if key(Key::C) {
+		Action::Brush
+	} else if key(Key::B) {
+		Action::BoxSelect
+	} else if key(Key::Delete) {
+		Action::Delete
+	} else {
+		return None;
+	};
+	Some(action)
 }
 
 fn center(points: impl ExactSizeIterator<Item = Pos2>) -> Pos2 {

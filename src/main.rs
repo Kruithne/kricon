@@ -14,6 +14,7 @@ mod view;
 
 use edit::EditMode;
 use eframe::egui;
+use icon::Icon;
 use images::{Image, Loader};
 use layers::Layers;
 use mesh::Mesh;
@@ -29,6 +30,7 @@ const DEFAULT_FACE_OPACITY: f32 = 0.1;
 const MAX_SPACING: f32 = 8.0;
 const SPACING_STEP: f32 = 0.5;
 const MARGIN: f32 = 12.0;
+const BUTTON_ICON_SIZE: f32 = 20.0;
 
 struct App {
 	view: View,
@@ -38,6 +40,7 @@ struct App {
 	face_opacity: f32,
 	spacing: Spacing,
 	loader: Loader,
+	menu_icon: Icon,
 }
 
 impl App {
@@ -80,6 +83,36 @@ impl App {
 			let pos = ctx.pointer_latest_pos().unwrap_or(rect.center());
 			let image = Image::new(ctx, pixels, self.view.to_world(pos));
 			self.edit.add_image(&mut self.mesh, image);
+		}
+	}
+
+	fn show_menu_button(&mut self, ctx: &egui::Context) {
+		let open = self.edit.menu_open();
+		let response = egui::Area::new(egui::Id::new("menu_button"))
+			.anchor(egui::Align2::LEFT_TOP, [MARGIN, MARGIN])
+			.show(ctx, |ui| {
+				panel::frame()
+					.show(ui, |ui| {
+						let (rect, response, tint) = panel::item(
+							ui,
+							egui::Vec2::splat(panel::BUTTON_SIZE),
+							open,
+							egui::Sense::click(),
+						);
+						let icon_rect = egui::Rect::from_center_size(
+							rect.center(),
+							egui::Vec2::splat(BUTTON_ICON_SIZE),
+						);
+						panel::paint_icon(ui, &mut self.menu_icon, icon_rect, tint);
+						response.clicked()
+					})
+					.inner
+			});
+
+		if response.inner {
+			let anchor =
+				response.response.rect.left_bottom() + egui::vec2(0.0, panel::FRAME_MARGIN);
+			self.edit.toggle_menu(&mut self.mesh, anchor);
 		}
 	}
 
@@ -143,6 +176,7 @@ impl eframe::App for App {
 		self.spacing.update(&self.mesh);
 		self.spacing.draw(&self.view, painter);
 
+		self.show_menu_button(ui.ctx());
 		self.edit
 			.show_menu(ui.ctx(), &mut self.mesh, &self.view, ACCENT_COLOR);
 		self.edit
@@ -210,6 +244,7 @@ fn main() -> eframe::Result {
 				face_opacity: DEFAULT_FACE_OPACITY,
 				spacing: Spacing::default(),
 				loader: Loader::new(),
+				menu_icon: Icon::new(icon::MENU),
 			}))
 		}),
 	)

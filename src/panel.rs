@@ -12,6 +12,7 @@ const ICON_SIZE: f32 = 16.0;
 pub const PADDING: f32 = 8.0;
 pub const TEXT_SIZE: f32 = 14.0;
 const BORDER_WIDTH: f32 = 1.0;
+pub const BUTTON_SIZE: f32 = 36.0;
 
 pub fn frame() -> egui::Frame {
 	egui::Frame::new()
@@ -64,6 +65,15 @@ pub fn paint_icon(ui: &egui::Ui, icon: &mut Icon, rect: egui::Rect, tint: egui::
 	let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
 	ui.painter()
 		.image(icon.texture(ui.ctx(), pixels), rect, uv, tint);
+}
+
+pub fn row_width(ui: &egui::Ui, text: &str) -> f32 {
+	let galley = ui.painter().layout_no_wrap(
+		text.to_owned(),
+		egui::FontId::proportional(TEXT_SIZE),
+		CONTENT_COLOR,
+	);
+	3.0 * PADDING + ICON_SIZE + galley.size().x
 }
 
 pub fn paint_label(ui: &egui::Ui, after: egui::Rect, text: &str, color: egui::Color32) {

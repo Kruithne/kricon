@@ -44,7 +44,13 @@ impl Layers {
 		egui::Window::new("Layers")
 			.frame(panel::bordered_frame(accent))
 			.title_bar(false)
-			.default_pos(ctx.content_rect().left_top() + egui::vec2(MARGIN, MARGIN))
+			.default_pos(
+				ctx.content_rect().left_top()
+					+ egui::vec2(
+						MARGIN,
+						2.0 * MARGIN + panel::BUTTON_SIZE + 2.0 * panel::FRAME_MARGIN,
+					),
+			)
 			.resizable(false)
 			.collapsible(false)
 			.show(ctx, |ui| {
