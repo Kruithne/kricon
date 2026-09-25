@@ -1,6 +1,8 @@
+use crate::export::{Fill, Segment};
 use crate::history::Splice;
 use crate::images::Image;
 use eframe::egui::{Color32, Pos2, Rect, Vec2, vec2};
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
 
@@ -550,7 +552,7 @@ impl Mesh {
 			.filled_faces()
 			.into_iter()
 			.partition(|face| holdouts.contains(&self.vertex_layers[face[0]]));
-		faces.sort_by_key(|face| std::cmp::Reverse(rank(face)));
+		faces.sort_by_key(|face| Reverse(rank(face)));
 
 		let cutters: Vec<(usize, [Pos2; 3])> = cutters
 			.iter()
@@ -592,6 +594,74 @@ impl Mesh {
 				let holdout = holdouts.contains(&self.vertex_layers[face[0]]);
 				let fill = (!holdout).then(|| self.color_of(&face_key(face)));
 				(self.outline(face), fill)
+			})
+			.collect()
+	}
+
+	pub fn fills(&self, vertices: &[usize]) -> Vec<Fill> {
+		let selected: HashSet<usize> = vertices.iter().copied().collect();
+		let ranks = self.ranks();
+		let holdouts = self.holdouts();
+		let rank = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
+		let (cutters, faces): (Vec<_>, Vec<_>) = self
+			.filled_faces()
+			.into_iter()
+			.partition(|face| holdouts.contains(&self.vertex_layers[face[0]]));
+
+		let mut fills: Vec<(usize, Fill)> = Vec::new();
+		for face in faces
+			.iter()
+			.filter(|face| face.iter().all(|vertex| selected.contains(vertex)))
+		{
+			let (rank, color) = (rank(face), self.color_of(&face_key(face)));
+			let contour = self.segments(face);
+			if let Some((_, fill)) = fills
+				.iter_mut()
+				.find(|(other, fill)| *other == rank && fill.color == color)
+			{
+				fill.contours.push(contour);
+				continue;
+			}
+
+			let cutters = cutters
+				.iter()
+				.filter(|cutter| ranks[&self.vertex_layers[cutter[0]]] < rank)
+				.map(|cutter| self.segments(cutter))
+				.collect();
+			fills.push((
+				rank,
+				Fill {
+					color,
+					contours: vec![contour],
+					cutters,
+				},
+			));
+		}
+
+		fills.sort_by_key(|&(rank, _)| Reverse(rank));
+		fills.into_iter().map(|(_, fill)| fill).collect()
+	}
+
+	fn segments(&self, face: &[usize]) -> Vec<Segment> {
+		let count = face.len();
+		let point = |index: usize| self.vertices[face[index % count]];
+		let curve = self.is_curve(face[0]);
+		(0..count)
+			.map(|index| {
+				if !curve {
+					return Segment::Line([point(index), point(index + 1)]);
+				}
+
+				let [a, b, c, d] = [0, 1, 2, 3].map(|offset| point(index + offset).to_vec2());
+				Segment::Cubic(
+					[
+						(a + b * 4.0 + c) / 6.0,
+						(b * 2.0 + c) / 3.0,
+						(b + c * 2.0) / 3.0,
+						(b + c * 4.0 + d) / 6.0,
+					]
+					.map(Vec2::to_pos2),
+				)
 			})
 			.collect()
 	}

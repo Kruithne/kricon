@@ -1,3 +1,4 @@
+use crate::export;
 use crate::history::History;
 use crate::icon;
 use crate::images::Image;
@@ -71,7 +72,7 @@ const FILE_MENU: [(Action, &str, &str); 3] = [
 		icon::BORING,
 	),
 ];
-const MAIN_MENU: [(Action, &str, &str); 26] = [
+const MAIN_MENU: [(Action, &str, &str); 27] = [
 	(Action::Translate, "Translate (G)", icon::BORING),
 	(Action::Rotate, "Rotate (R)", icon::BORING),
 	(Action::Scale, "Scale (S)", icon::BORING),
@@ -100,6 +101,7 @@ const MAIN_MENU: [(Action, &str, &str); 26] = [
 	(Action::Palette, "Set Colour (Y)", icon::BORING),
 	(Action::CopyColor, "Copy Colour (Ctrl+Y)", icon::BORING),
 	(Action::PasteColor, "Paste Colour (Shift+Y)", icon::BORING),
+	(Action::CopySvg, "Copy SVG Code (Ctrl+C)", icon::BORING),
 	(Action::Undo, "Undo (Ctrl+Z)", icon::BORING),
 	(Action::Redo, "Redo (Ctrl+R)", icon::BORING),
 ];
@@ -146,6 +148,7 @@ enum Action {
 	Palette,
 	CopyColor,
 	PasteColor,
+	CopySvg,
 	Delete,
 }
 
@@ -960,6 +963,11 @@ impl EditMode {
 				ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
 				ctx.request_repaint();
 			}
+			Action::CopySvg => {
+				if let Some(svg) = export::svg(mesh.fills(&self.selection.vertices)) {
+					ctx.copy_text(svg);
+				}
+			}
 			Action::Delete => self.record(mesh, |edit, mesh| {
 				mesh.remove_vertices(std::mem::take(&mut edit.selection.vertices));
 				mesh.remove_images(std::mem::take(&mut edit.selection.images));
@@ -1211,7 +1219,9 @@ impl EditMode {
 fn key_action(input: &egui::InputState) -> Option<Action> {
 	let key = |key: Key| input.key_pressed(key);
 	let modifiers = input.modifiers;
-	let action = if key(Key::Z) && modifiers.ctrl {
+	let action = if input.events.contains(&Event::Copy) {
+		Action::CopySvg
+	} else if key(Key::Z) && modifiers.ctrl {
 		Action::Undo
 	} else if key(Key::R) && modifiers.ctrl {
 		Action::Redo
