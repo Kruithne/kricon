@@ -337,6 +337,25 @@ impl EditMode {
 		self.record(mesh, |_, mesh| mesh.move_layer(from, target));
 	}
 
+	pub fn rename_layer(&mut self, mesh: &mut Mesh, layer: u32, name: String) {
+		self.cancel(mesh);
+		self.record(mesh, |_, mesh| mesh.rename_layer(layer, name));
+	}
+
+	pub fn delete_layer(&mut self, mesh: &mut Mesh, layer: u32) {
+		self.cancel(mesh);
+		self.record(mesh, |edit, mesh| {
+			let removed: Vec<usize> = mesh.layer_vertices(layer).collect();
+			edit.selection
+				.vertices
+				.retain(|vertex| !removed.contains(vertex));
+			for vertex in &mut edit.selection.vertices {
+				*vertex -= removed.iter().filter(|&removed| removed < vertex).count();
+			}
+			mesh.remove_vertices(removed);
+		});
+	}
+
 	pub fn toggle_menu(&mut self, mesh: &mut Mesh, anchor: Pos2) {
 		let open = self.menu_open();
 		self.cancel(mesh);

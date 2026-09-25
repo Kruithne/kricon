@@ -10,11 +10,12 @@ const CURVE_SEGMENTS: usize = 16;
 const SKEW_TOLERANCE: f32 = 0.1;
 const MIN_PIECE_AREA: f32 = 1e-6;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Layer {
 	pub id: u32,
 	pub curve: bool,
 	pub holdout: bool,
+	pub name: String,
 }
 
 #[derive(Clone, Default)]
@@ -81,6 +82,7 @@ impl Mesh {
 				id: layer,
 				curve: false,
 				holdout: false,
+				name: String::new(),
 			},
 		);
 		self.vertex_layers.push(layer);
@@ -96,6 +98,7 @@ impl Mesh {
 				id: layer,
 				curve,
 				holdout: false,
+				name: String::new(),
 			},
 		);
 
@@ -203,6 +206,12 @@ impl Mesh {
 		let layer = self.layers.remove(from);
 		let to = if target > from { target - 1 } else { target };
 		self.layers.insert(to, layer);
+	}
+
+	pub fn rename_layer(&mut self, id: u32, name: String) {
+		if let Some(layer) = self.layers.iter_mut().find(|layer| layer.id == id) {
+			layer.name = name;
+		}
 	}
 
 	pub fn layer(&self, vertex: usize) -> u32 {
@@ -761,8 +770,15 @@ impl Mesh {
 				.position(|layer| layer.id == *owner)
 				.unwrap();
 			let Layer { curve, holdout, .. } = self.layers[position];
-			self.layers
-				.insert(position + 1, Layer { id, curve, holdout });
+			self.layers.insert(
+				position + 1,
+				Layer {
+					id,
+					curve,
+					holdout,
+					name: String::new(),
+				},
+			);
 			*owner = id;
 		}
 
