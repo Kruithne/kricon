@@ -1,4 +1,4 @@
-use super::{FillRule, Point, Segment, Svg};
+use super::{Command, FillRule, Point, Svg};
 
 const SUBSAMPLES: usize = 16;
 const TOLERANCE: f32 = 0.1;
@@ -19,7 +19,7 @@ pub fn rasterize(svg: &Svg, width: usize, height: usize) -> Vec<u8> {
 	let mut coverage = vec![0.0f32; width * height];
 
 	for path in &svg.paths {
-		let edges = flatten(&path.segments, transform);
+		let edges = flatten(&path.commands, transform);
 		coverage.fill(0.0);
 		fill(&edges, path.fill_rule, width, height, &mut coverage);
 
@@ -32,7 +32,7 @@ pub fn rasterize(svg: &Svg, width: usize, height: usize) -> Vec<u8> {
 	alpha.iter().map(|a| (a * 255.0).round() as u8).collect()
 }
 
-fn flatten(segments: &[Segment], transform: impl Fn(Point) -> Point) -> Vec<Edge> {
+fn flatten(commands: &[Command], transform: impl Fn(Point) -> Point) -> Vec<Edge> {
 	let mut edges = Vec::new();
 	let mut start = Point::default();
 	let mut current = Point::default();
@@ -44,15 +44,15 @@ fn flatten(segments: &[Segment], transform: impl Fn(Point) -> Point) -> Vec<Edge
 		*current = to;
 	};
 
-	for segment in segments {
-		match *segment {
-			Segment::Move(p) => {
+	for command in commands {
+		match *command {
+			Command::Move(p) => {
 				line_to(&mut edges, &mut current, start);
 				start = transform(p);
 				current = start;
 			}
-			Segment::Line(p) => line_to(&mut edges, &mut current, transform(p)),
-			Segment::Quad(a, p) => {
+			Command::Line(p) => line_to(&mut edges, &mut current, transform(p)),
+			Command::Quad(a, p) => {
 				let (p0, p1, p2) = (current, transform(a), transform(p));
 				let count = steps(0.25, deviation(p0, p1, p2));
 				for i in 1..=count {
@@ -63,7 +63,7 @@ fn flatten(segments: &[Segment], transform: impl Fn(Point) -> Point) -> Vec<Edge
 					line_to(&mut edges, &mut current, Point::new(x, y));
 				}
 			}
-			Segment::Cubic(a, b, p) => {
+			Command::Cubic(a, b, p) => {
 				let (p0, p1, p2, p3) = (current, transform(a), transform(b), transform(p));
 				let count = steps(0.75, deviation(p0, p1, p2).max(deviation(p1, p2, p3)));
 				for i in 1..=count {
@@ -75,7 +75,7 @@ fn flatten(segments: &[Segment], transform: impl Fn(Point) -> Point) -> Vec<Edge
 					line_to(&mut edges, &mut current, Point::new(x, y));
 				}
 			}
-			Segment::Close => line_to(&mut edges, &mut current, start),
+			Command::Close => line_to(&mut edges, &mut current, start),
 		}
 	}
 

@@ -10,7 +10,7 @@ const MIN_FIT_POINTS: usize = 4;
 const MAX_FIT_POINTS: usize = 512;
 const RELAX_STEPS: usize = 64;
 const MAX_DEPTH: u32 = 10;
-const IDENTITY: Transform = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+const IDENTITY: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 const SKIPPED: [&str; 8] = [
 	"defs",
 	"clipPath",
@@ -22,7 +22,7 @@ const SKIPPED: [&str; 8] = [
 	"radialGradient",
 ];
 
-type Transform = [f32; 6];
+type Matrix = [f32; 6];
 
 pub struct Shape {
 	pub points: Vec<Pos2>,
@@ -40,7 +40,7 @@ enum Paint {
 
 #[derive(Clone, Copy)]
 struct Style {
-	transform: Transform,
+	transform: Matrix,
 	fill: Paint,
 	even_odd: bool,
 }
@@ -265,7 +265,7 @@ fn convert(data: &str, style: Style, color: Option<Color32>) -> Vec<Shape> {
 	shapes.into_iter().map(|(_, shape)| shape).collect()
 }
 
-fn contours(path: &[svg::Segment], transform: Transform) -> Vec<Vec<Segment>> {
+fn contours(path: &[svg::Command], transform: Matrix) -> Vec<Vec<Segment>> {
 	let pos = |point: Point| {
 		let [a, b, c, d, e, f] = transform;
 		pos2(a * point.x + c * point.y + e, b * point.x + d * point.y + f)
@@ -276,19 +276,19 @@ fn contours(path: &[svg::Segment], transform: Transform) -> Vec<Vec<Segment>> {
 	let (mut start, mut current) = (Pos2::ZERO, Pos2::ZERO);
 	for &segment in path {
 		let segment = match segment {
-			svg::Segment::Move(point) => {
+			svg::Command::Move(point) => {
 				close(&mut contours, &mut contour, start, current);
 				start = pos(point);
 				current = start;
 				continue;
 			}
-			svg::Segment::Close => {
+			svg::Command::Close => {
 				close(&mut contours, &mut contour, start, current);
 				current = start;
 				continue;
 			}
-			svg::Segment::Line(point) => Segment::Line([current, pos(point)]),
-			svg::Segment::Quad(control, point) => {
+			svg::Command::Line(point) => Segment::Line([current, pos(point)]),
+			svg::Command::Quad(control, point) => {
 				let (control, end) = (pos(control), pos(point));
 				Segment::Cubic([
 					current,
@@ -297,7 +297,7 @@ fn contours(path: &[svg::Segment], transform: Transform) -> Vec<Vec<Segment>> {
 					end,
 				])
 			}
-			svg::Segment::Cubic(a, b, point) => {
+			svg::Command::Cubic(a, b, point) => {
 				Segment::Cubic([current, pos(a), pos(b), pos(point)])
 			}
 		};
@@ -475,7 +475,7 @@ fn dedup(outline: &[Pos2]) -> Vec<Pos2> {
 	points
 }
 
-fn parse_transform(text: &str) -> Transform {
+fn parse_transform(text: &str) -> Matrix {
 	text.split(')')
 		.filter_map(|part| {
 			let (name, args) = part.split_once('(')?;
@@ -504,12 +504,12 @@ fn parse_transform(text: &str) -> Transform {
 		.fold(IDENTITY, multiply)
 }
 
-fn rotation(angle: f32) -> Transform {
+fn rotation(angle: f32) -> Matrix {
 	let (sin, cos) = angle.to_radians().sin_cos();
 	[cos, sin, -sin, cos, 0.0, 0.0]
 }
 
-fn multiply([a, b, c, d, e, f]: Transform, [g, h, i, j, k, l]: Transform) -> Transform {
+fn multiply([a, b, c, d, e, f]: Matrix, [g, h, i, j, k, l]: Matrix) -> Matrix {
 	[
 		a * g + c * h,
 		b * g + d * h,

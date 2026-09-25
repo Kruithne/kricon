@@ -1,7 +1,7 @@
 mod path;
 mod raster;
 
-pub use path::{Segment, parse as parse_path};
+pub use path::{Command, parse as parse_path};
 pub use raster::rasterize;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -23,7 +23,7 @@ pub enum FillRule {
 }
 
 pub struct Path {
-	pub segments: Vec<Segment>,
+	pub commands: Vec<Command>,
 	pub fill_rule: FillRule,
 }
 
@@ -55,7 +55,7 @@ impl Svg {
 					};
 
 					paths.push(Path {
-						segments: path::parse(data),
+						commands: path::parse(data),
 						fill_rule,
 					});
 				}
