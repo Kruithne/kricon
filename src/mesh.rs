@@ -2,10 +2,12 @@ use crate::history::Splice;
 use crate::images::Image;
 use eframe::egui::{Color32, Pos2, Rect, Vec2, vec2};
 use std::collections::{HashMap, HashSet};
+use std::f32::consts::TAU;
 
 const MIN_MITER: f32 = 0.01;
 const FACE_COLOR: Color32 = Color32::WHITE;
 const CURVE_SEGMENTS: usize = 16;
+const SKEW_TOLERANCE: f32 = 0.1;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Layer {
@@ -464,6 +466,28 @@ impl Mesh {
 			.collect()
 	}
 
+	pub fn edge_loops(&self, vertices: &[usize]) -> Vec<usize> {
+		let neighbours = self.neighbours();
+		let mut found = Vec::new();
+		for &[a, b] in &self.edges {
+			if !vertices.contains(&a) || !vertices.contains(&b) {
+				continue;
+			}
+
+			for (mut prev, mut current) in [(a, b), (b, a)] {
+				let mut visited = HashSet::from([prev]);
+				while visited.insert(current) {
+					found.push(current);
+					let Some(next) = self.loop_next(&neighbours, prev, current) else {
+						break;
+					};
+					(prev, current) = (current, next);
+				}
+			}
+		}
+		found
+	}
+
 	pub fn image_at(&self, pos: Pos2) -> Option<usize> {
 		self.images.iter().rposition(|image| image.contains(pos))
 	}
@@ -583,6 +607,49 @@ impl Mesh {
 			(Some(x), Some(y)) => x.lerp(y, 0.5),
 			(Some(point), None) | (None, Some(point)) => point,
 			(None, None) => pa.lerp(pb, 0.5),
+		}
+	}
+
+	fn loop_next(&self, neighbours: &[Vec<usize>], prev: usize, vertex: usize) -> Option<usize> {
+		let origin = self.vertices[vertex];
+		let direction = |to: usize| self.vertices[to] - origin;
+		let angle = |from: usize, to: usize| {
+			let (u, v) = (direction(from).normalized(), direction(to).normalized());
+			u.dot(v).clamp(-1.0, 1.0).acos()
+		};
+
+		let others: Vec<usize> = neighbours[vertex]
+			.iter()
+			.copied()
+			.filter(|&next| next != prev)
+			.collect();
+		match others[..] {
+			[next] => Some(next),
+			[a, b] => {
+				let skew =
+					|next: usize, branch: usize| (angle(branch, prev) - angle(branch, next)).abs();
+				let (skew_a, skew_b) = (skew(a, b), skew(b, a));
+				if (skew_a - skew_b).abs() < SKEW_TOLERANCE {
+					None
+				} else if skew_a < skew_b {
+					Some(a)
+				} else {
+					Some(b)
+				}
+			}
+			[_, _, _] => {
+				let back = direction(prev);
+				let turn = |to: usize| {
+					let forward = direction(to);
+					cross(back, forward)
+						.atan2(back.dot(forward))
+						.rem_euclid(TAU)
+				};
+				let mut sorted = others;
+				sorted.sort_by(|&a, &b| turn(a).total_cmp(&turn(b)));
+				Some(sorted[1])
+			}
+			_ => None,
 		}
 	}
 

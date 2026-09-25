@@ -57,7 +57,7 @@ const MERGE_MENU: [(Action, &str, &str); 4] = [
 		icon::BORING,
 	),
 ];
-const MAIN_MENU: [(Action, &str, &str); 22] = [
+const MAIN_MENU: [(Action, &str, &str); 23] = [
 	(Action::Translate, "Translate (G)", icon::BORING),
 	(Action::Rotate, "Rotate (R)", icon::BORING),
 	(Action::Scale, "Scale (S)", icon::BORING),
@@ -76,6 +76,7 @@ const MAIN_MENU: [(Action, &str, &str); 22] = [
 	(Action::Dissolve, "Dissolve (X)", icon::BORING),
 	(Action::Delete, "Delete (Del)", icon::BORING),
 	(Action::SelectLinked, "Select Linked (L)", icon::BORING),
+	(Action::SelectSameEdge, "Select Same Edge (T)", icon::BORING),
 	(Action::Brush, "Brush Select (C)", icon::BORING),
 	(Action::BoxSelect, "Box Select (B)", icon::BORING),
 	(Action::ToggleHole, "Toggle Hole (P)", icon::BORING),
@@ -106,6 +107,7 @@ enum Action {
 	AddCircle,
 	AddCurve,
 	SelectLinked,
+	SelectSameEdge,
 	Brush,
 	BoxSelect,
 	Menu(MenuKind),
@@ -801,6 +803,9 @@ impl EditMode {
 				}
 				self.extend_selection(mesh.linked(&self.selection.vertices));
 			}
+			Action::SelectSameEdge => {
+				self.extend_selection(mesh.edge_loops(&self.selection.vertices));
+			}
 			Action::Brush => self.operation = Operation::Brush,
 			Action::BoxSelect => self.operation = Operation::BoxSelect { start: None },
 			Action::Menu(kind) => self.operation = Operation::Menu { pos: cursor, kind },
@@ -1078,6 +1083,8 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::AddVertex
 	} else if key(Key::L) {
 		Action::SelectLinked
+	} else if key(Key::T) {
+		Action::SelectSameEdge
 	} else if key(Key::W) {
 		Action::Menu(MenuKind::Create)
 	} else if key(Key::M) {
