@@ -3,7 +3,7 @@ use crate::mesh::{Layer, Mesh};
 use eframe::egui::{self, Color32, Pos2, Vec2, pos2, vec2};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 
@@ -37,7 +37,7 @@ pub struct Loaded {
 pub struct Workspace {
 	pub path: Option<PathBuf>,
 	saved: u64,
-	saving: Option<Receiver<(PathBuf, u64, io::Result<()>)>>,
+	saving: Option<Receiver<io::Result<(PathBuf, u64)>>>,
 	loading: Option<Receiver<io::Result<Loaded>>>,
 	autosave: Instant,
 }
@@ -91,8 +91,8 @@ impl Workspace {
 		self.saving = Some(receiver);
 		self.autosave = Instant::now();
 		thread::spawn(move || {
-			let result = write(&path, &mesh, &meta);
-			if sender.send((path, revision, result)).is_ok() {
+			let result = write(&path, &mesh, &meta).map(|()| (path, revision));
+			if sender.send(result).is_ok() {
 				ctx.request_repaint();
 			}
 		});
@@ -112,20 +112,26 @@ impl Workspace {
 	}
 
 	pub fn poll_save(&mut self) -> Option<io::Result<()>> {
-		let (path, revision, result) = self.saving.as_ref()?.try_recv().ok()?;
-		self.saving = None;
-		if result.is_ok() {
+		let result = poll(&mut self.saving)?.map(|(path, revision)| {
 			self.path = Some(path);
 			self.saved = revision;
-		}
+		});
 		Some(result)
 	}
 
 	pub fn poll_load(&mut self) -> Option<io::Result<Loaded>> {
-		let result = self.loading.as_ref()?.try_recv().ok()?;
-		self.loading = None;
-		Some(result)
+		poll(&mut self.loading)
 	}
+}
+
+fn poll<T>(receiver: &mut Option<Receiver<io::Result<T>>>) -> Option<io::Result<T>> {
+	let result = match receiver.as_ref()?.try_recv() {
+		Ok(result) => result,
+		Err(TryRecvError::Empty) => return None,
+		Err(TryRecvError::Disconnected) => Err(io::Error::other("background task stopped")),
+	};
+	*receiver = None;
+	Some(result)
 }
 
 fn write(path: &Path, mesh: &Mesh, meta: &Meta) -> io::Result<()> {
