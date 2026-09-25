@@ -10,6 +10,7 @@ mod layers;
 mod menu;
 mod mesh;
 mod panel;
+mod settings;
 mod spacing;
 mod svg;
 mod view;
@@ -21,6 +22,7 @@ use icon::Icon;
 use images::{Image, Loader};
 use layers::Layers;
 use mesh::Mesh;
+use settings::Settings;
 use spacing::Spacing;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -50,6 +52,8 @@ struct App {
 	images_icon: Icon,
 	outlines_icon: Icon,
 	workspace: Workspace,
+	settings: Settings,
+	restoring: bool,
 	title: String,
 }
 
@@ -109,6 +113,13 @@ impl App {
 	}
 
 	fn handle_files(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+		if self.restoring
+			&& !self.workspace.is_busy()
+			&& let Some(path) = self.settings.workspace.clone()
+		{
+			self.workspace.load(ctx, path);
+		}
+
 		let request = self.edit.take_request();
 		if !self.workspace.is_busy() {
 			match request {
@@ -125,8 +136,16 @@ impl App {
 
 		match self.workspace.poll_load() {
 			Some(Ok(loaded)) => self.open(ctx, loaded),
-			Some(Err(error)) => show_error(frame, "Load Failed", &error),
-			None => {}
+			Some(Err(error)) if !self.restoring => show_error(frame, "Load Failed", &error),
+			_ => {}
+		}
+
+		if !self.workspace.is_busy() {
+			self.restoring = false;
+			if self.workspace.path != self.settings.workspace {
+				self.settings.workspace = self.workspace.path.clone();
+				self.settings.save();
+			}
 		}
 
 		if self.workspace.autosave_due(ctx)
@@ -421,6 +440,7 @@ fn main() -> eframe::Result {
 			cc.egui_ctx.set_theme(egui::Theme::Dark);
 			cc.egui_ctx
 				.all_styles_mut(|style| style.animation_time = 0.0);
+			let settings = Settings::load();
 			Ok(Box::new(App {
 				view: View {
 					offset: egui::Vec2::ZERO,
@@ -436,6 +456,8 @@ fn main() -> eframe::Result {
 				images_icon: Icon::new(icon::BORING),
 				outlines_icon: Icon::new(icon::BORING),
 				workspace: Workspace::new(),
+				restoring: settings.workspace.is_some(),
+				settings,
 				title: String::new(),
 			}))
 		}),
