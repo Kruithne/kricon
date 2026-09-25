@@ -952,13 +952,12 @@ impl EditMode {
 				}
 			}
 			Action::SelectLinked => {
-				if self.selection.vertices.is_empty() {
-					let radius = LINK_PICK_RADIUS / view.scale;
-					self.selection
-						.vertices
-						.extend(mesh.nearest_vertex(cursor, radius));
-				}
-				self.extend_selection(mesh.linked(&self.selection.vertices));
+				let radius = LINK_PICK_RADIUS / view.scale;
+				let seeds = match mesh.nearest_vertex(cursor, radius) {
+					Some(vertex) => vec![vertex],
+					None => self.selection.vertices.clone(),
+				};
+				self.extend_selection(mesh.linked(&seeds));
 			}
 			Action::SelectSameEdge => {
 				self.extend_selection(mesh.edge_loops(&self.selection.vertices));
