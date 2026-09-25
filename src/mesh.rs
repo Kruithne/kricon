@@ -458,6 +458,34 @@ impl Mesh {
 		triangles
 	}
 
+	pub fn boundary(&self) -> Vec<[Pos2; 4]> {
+		let mut segments = Vec::new();
+		let mut directed = Vec::new();
+		for face in self.filled_faces() {
+			if !self.is_curve(face[0]) {
+				for (index, &a) in face.iter().enumerate() {
+					directed.push([a, face[(index + 1) % face.len()]]);
+				}
+				continue;
+			}
+
+			let outline = self.outline(&face);
+			let count = outline.len();
+			for index in 0..count {
+				segments.push([count - 1, 0, 1, 2].map(|offset| outline[(index + offset) % count]));
+			}
+		}
+
+		let lookup: HashSet<[usize; 2]> = directed.iter().copied().collect();
+		directed.retain(|&[a, b]| !lookup.contains(&[b, a]));
+		let next: HashMap<usize, usize> = directed.iter().map(|&[a, b]| (a, b)).collect();
+		let prev: HashMap<usize, usize> = directed.iter().map(|&[a, b]| (b, a)).collect();
+		for &[a, b] in &directed {
+			segments.push([prev[&a], a, b, next[&b]].map(|vertex| self.vertices[vertex]));
+		}
+		segments
+	}
+
 	fn copy_vertices(&mut self, vertices: &[usize]) -> Vec<usize> {
 		let offset = self.vertices.len();
 		let copies: HashMap<usize, usize> = vertices
