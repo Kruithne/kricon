@@ -1,5 +1,5 @@
 use crate::images::{self, Decoded};
-use crate::mesh::{Layer, Mesh};
+use crate::mesh::{FaceColor, Layer, Mesh};
 use eframe::egui::{self, Color32, Pos2, Vec2, pos2, vec2};
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -213,7 +213,7 @@ fn encode(mesh: &Mesh, meta: &Meta) -> Vec<u8> {
 	});
 	writer.section(COLORS, |writer| {
 		writer.u32(mesh.colors.len() as u32);
-		for (face, color) in &mesh.colors {
+		for FaceColor { face, color } in &mesh.colors {
 			writer.indices(face);
 			writer.bytes.extend_from_slice(&color.to_array());
 		}
@@ -278,7 +278,10 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 				mesh.colors = section.list(8, |reader| {
 					let face = reader.indices()?;
 					let [r, g, b, a] = reader.array()?;
-					Some((face, Color32::from_rgba_premultiplied(r, g, b, a)))
+					Some(FaceColor {
+						face,
+						color: Color32::from_rgba_premultiplied(r, g, b, a),
+					})
 				})?
 			}
 			IMAGES => {
@@ -304,7 +307,11 @@ fn is_valid(mesh: &Mesh) -> bool {
 			.all(|&id| mesh.layers.iter().any(|layer| layer.id == id))
 		&& mesh.edges.iter().flatten().all(in_range)
 		&& mesh.holes.iter().flatten().all(in_range)
-		&& mesh.colors.iter().flat_map(|(face, _)| face).all(in_range)
+		&& mesh
+			.colors
+			.iter()
+			.flat_map(|entry| &entry.face)
+			.all(in_range)
 }
 
 #[derive(Default)]

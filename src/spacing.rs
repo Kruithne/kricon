@@ -1,5 +1,5 @@
 use crate::geometry::{cross, encloses, turn};
-use crate::mesh::Mesh;
+use crate::mesh::{Mesh, Region};
 use crate::view::View;
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2, vec2};
 use std::collections::HashMap;
@@ -11,8 +11,6 @@ const EPSILON: f32 = 1e-4;
 const CONE_MARGIN: f32 = 0.05;
 const PARALLEL: f32 = 0.17;
 const NUDGE: f32 = 1e-3;
-
-type Region = (Vec<Pos2>, Option<Color32>);
 
 #[derive(Default)]
 pub struct Spacing {
@@ -61,22 +59,22 @@ fn draw_head(painter: &egui::Painter, tip: Pos2, from: Pos2, stroke: egui::Strok
 fn boundary(regions: &[Region]) -> Vec<[Pos2; 4]> {
 	let bounds: Vec<Rect> = regions
 		.iter()
-		.map(|(outline, _)| Rect::from_points(outline))
+		.map(|region| Rect::from_points(&region.outline))
 		.collect();
 	let top = |point: Pos2| {
 		regions
 			.iter()
 			.zip(&bounds)
-			.position(|((outline, _), rect)| rect.contains(point) && encloses(outline, point))
+			.position(|(region, rect)| rect.contains(point) && encloses(&region.outline, point))
 	};
 
 	let mut pieces = Vec::new();
-	for (owner, (outline, fill)) in regions.iter().enumerate() {
+	for (owner, Region { outline, fill }) in regions.iter().enumerate() {
 		for (index, &a) in outline.iter().enumerate() {
 			let b = outline[(index + 1) % outline.len()];
 			let rect = Rect::from_two_pos(a, b);
 			let mut cuts = vec![a, b];
-			for (other, (edges, _)) in regions.iter().enumerate() {
+			for (other, Region { outline: edges, .. }) in regions.iter().enumerate() {
 				if other == owner || !bounds[other].intersects(rect) {
 					continue;
 				}
@@ -109,7 +107,7 @@ fn boundary(regions: &[Region]) -> Vec<[Pos2; 4]> {
 					continue;
 				}
 
-				let other = below.and_then(|below| regions[below].1);
+				let other = below.and_then(|below| regions[below].fill);
 				if *fill == other {
 					continue;
 				}

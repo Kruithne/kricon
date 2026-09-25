@@ -21,6 +21,18 @@ pub struct Layer {
 	pub name: String,
 }
 
+#[derive(Clone, PartialEq)]
+pub struct FaceColor {
+	pub face: Vec<usize>,
+	pub color: Color32,
+}
+
+#[derive(PartialEq)]
+pub struct Region {
+	pub outline: Vec<Pos2>,
+	pub fill: Option<Color32>,
+}
+
 #[derive(Clone, Default)]
 pub struct Mesh {
 	pub vertices: Vec<Pos2>,
@@ -28,7 +40,7 @@ pub struct Mesh {
 	pub layers: Vec<Layer>,
 	pub vertex_layers: Vec<u32>,
 	pub holes: Vec<Vec<usize>>,
-	pub colors: Vec<(Vec<usize>, Color32)>,
+	pub colors: Vec<FaceColor>,
 	pub images: Vec<Image>,
 }
 
@@ -38,7 +50,7 @@ pub struct Change {
 	layers: Splice<Layer>,
 	vertex_layers: Splice<u32>,
 	holes: Splice<Vec<usize>>,
-	colors: Splice<(Vec<usize>, Color32)>,
+	colors: Splice<FaceColor>,
 	images: Splice<Image>,
 }
 
@@ -445,9 +457,9 @@ impl Mesh {
 
 	pub fn set_color(&mut self, vertices: &[usize], color: Color32) {
 		let faces = self.enclosed_faces(vertices);
-		self.colors.retain(|(key, _)| !faces.contains(key));
+		self.colors.retain(|entry| !faces.contains(&entry.face));
 		self.colors
-			.extend(faces.into_iter().map(|face| (face, color)));
+			.extend(faces.into_iter().map(|face| FaceColor { face, color }));
 	}
 
 	pub fn nearest_vertex(&self, pos: Pos2, radius: f32) -> Option<usize> {
@@ -576,7 +588,7 @@ impl Mesh {
 		triangles
 	}
 
-	pub fn regions(&self) -> Vec<(Vec<Pos2>, Option<Color32>)> {
+	pub fn regions(&self) -> Vec<Region> {
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
 		let mut faces = self.filled_faces();
@@ -586,7 +598,10 @@ impl Mesh {
 			.map(|face| {
 				let holdout = holdouts.contains(&self.vertex_layers[face[0]]);
 				let fill = (!holdout).then(|| self.color_of(&face_key(face)));
-				(self.outline(face), fill)
+				Region {
+					outline: self.outline(face),
+					fill,
+				}
 			})
 			.collect()
 	}
@@ -683,13 +698,16 @@ impl Mesh {
 		}
 
 		for index in 0..self.colors.len() {
-			let (key, color) = &self.colors[index];
-			let copy: Option<Vec<usize>> = key
+			let FaceColor { face, color } = &self.colors[index];
+			let copy: Option<Vec<usize>> = face
 				.iter()
 				.map(|vertex| copies.get(vertex).copied())
 				.collect();
 			if let Some(copy) = copy {
-				self.colors.push((face_key(&copy), *color));
+				self.colors.push(FaceColor {
+					face: face_key(&copy),
+					color: *color,
+				});
 			}
 		}
 
@@ -920,13 +938,13 @@ impl Mesh {
 			}
 		}
 		self.holes.retain(|hole| hole.len() >= 3);
-		self.colors.retain(|(key, _)| key.len() >= 3);
+		self.colors.retain(|entry| entry.face.len() >= 3);
 	}
 
 	fn face_keys(&mut self) -> impl Iterator<Item = &mut Vec<usize>> {
 		self.holes
 			.iter_mut()
-			.chain(self.colors.iter_mut().map(|(key, _)| key))
+			.chain(self.colors.iter_mut().map(|entry| &mut entry.face))
 	}
 
 	fn enclosed_faces(&self, vertices: &[usize]) -> Vec<Vec<usize>> {
@@ -940,8 +958,8 @@ impl Mesh {
 	fn color_of(&self, key: &[usize]) -> Color32 {
 		self.colors
 			.iter()
-			.find(|(face, _)| face == key)
-			.map_or(FACE_COLOR, |&(_, color)| color)
+			.find(|entry| entry.face == key)
+			.map_or(FACE_COLOR, |entry| entry.color)
 	}
 
 	fn filled_faces(&self) -> Vec<Vec<usize>> {
