@@ -133,7 +133,7 @@ impl Mesh {
 			self.edges.push([source, copy]);
 		}
 
-		self.sync_layers();
+		self.sync_layers(false);
 		copies
 	}
 
@@ -213,7 +213,7 @@ impl Mesh {
 
 	pub fn duplicate(&mut self, vertices: &[usize]) -> Vec<usize> {
 		let copies = self.copy_vertices(vertices);
-		self.sync_layers();
+		self.sync_layers(true);
 		copies
 	}
 
@@ -278,7 +278,7 @@ impl Mesh {
 		}
 
 		self.edges.push([a, b]);
-		self.sync_layers();
+		self.sync_layers(false);
 	}
 
 	pub fn merge(&mut self, vertices: &[usize], pos: Pos2) -> usize {
@@ -554,7 +554,7 @@ impl Mesh {
 		for index in indices.into_iter().rev() {
 			self.remove_vertex(index);
 		}
-		self.sync_layers();
+		self.sync_layers(false);
 	}
 
 	pub fn triangles(&self) -> Vec<([Pos2; 3], Color32)> {
@@ -819,7 +819,7 @@ impl Mesh {
 		}
 	}
 
-	fn sync_layers(&mut self) {
+	fn sync_layers(&mut self, above: bool) {
 		let (components, count) = self.components();
 		let ranks = self.ranks();
 		let mut sizes: HashMap<u32, usize> = HashMap::new();
@@ -854,7 +854,7 @@ impl Mesh {
 				.unwrap();
 			let Layer { curve, holdout, .. } = self.layers[position];
 			self.layers.insert(
-				position + 1,
+				position + usize::from(!above),
 				Layer {
 					id,
 					curve,
