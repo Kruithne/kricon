@@ -20,7 +20,7 @@ kricon is a purpose-built icon editing utility.
 | `Enter` | Confirms the current transform. |
 | `Escape` | Cancels the current transform or closes the open menu. |
 | `E` | Extrudes the selected vertices. |
-| `Shift` + `D` | Duplicates the selected vertices. |
+| `Shift` + `D` | Duplicates the selected vertices. The copy goes above the original in the layer order. |
 | `F` | Connects the two selected vertices with an edge. |
 | `V` | Adds a vertex at the cursor. |
 | `Right Click` | Selects the vertex, face or image at the cursor. |
@@ -28,7 +28,7 @@ kricon is a purpose-built icon editing utility.
 | `K` | Toggles magnet mode. Translated vertices pull the nearby vertices with them. The pull fades out to the edge of the circle at the cursor. `Scroll` sets the size of the circle. |
 | `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
 | `A` | Selects all vertices. Deselects everything if something is already selected. |
-| `L` | Selects all linked vertices to the currently selected. |
+| `L` | Adds all vertices linked to the vertex at the cursor to the selection. With no vertex at the cursor, selects all vertices linked to the selection. |
 | `T` | Selects the edges that continue the path of the selected edges. For example, select one edge of an inset circle to select the full inner circle. |
 | `Ctrl` + `S` | Saves the workspace. Asks for a file if the workspace has no file yet. |
 | `Q` | Opens the menu of all actions at the cursor. The button in the top left also opens it. |
