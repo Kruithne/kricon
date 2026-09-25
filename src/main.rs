@@ -23,7 +23,6 @@ const GRID_SPACING: f32 = 32.0;
 const BACKGROUND_COLOR: egui::Color32 = egui::Color32::from_rgb(24, 24, 27);
 const GRID_COLOR: egui::Color32 = egui::Color32::from_rgb(44, 44, 48);
 const ACCENT_COLOR: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
-const FACE_COLOR: egui::Color32 = egui::Color32::WHITE;
 const DEFAULT_FACE_OPACITY: f32 = 0.1;
 const MARGIN: f32 = 12.0;
 
@@ -55,14 +54,14 @@ impl App {
 	}
 
 	fn draw_faces(&self, painter: &egui::Painter) {
-		let color = FACE_COLOR.gamma_multiply(self.face_opacity);
 		let mut shape = egui::Mesh::default();
-		for &vertex in &self.mesh.vertices {
-			shape.colored_vertex(self.view.to_screen(vertex), color);
-		}
-
-		for [a, b, c] in self.mesh.triangles() {
-			shape.add_triangle(a as u32, b as u32, c as u32);
+		for (triangle, color) in self.mesh.triangles() {
+			let color = color.gamma_multiply(self.face_opacity);
+			let index = shape.vertices.len() as u32;
+			for vertex in triangle {
+				shape.colored_vertex(self.view.to_screen(self.mesh.vertices[vertex]), color);
+			}
+			shape.add_triangle(index, index + 1, index + 2);
 		}
 
 		painter.add(shape);
@@ -125,6 +124,8 @@ impl eframe::App for App {
 
 		self.edit
 			.show_menu(ui.ctx(), &mut self.mesh, &self.view, ACCENT_COLOR);
+		self.edit
+			.show_palette(ui.ctx(), &mut self.mesh, &self.view, ACCENT_COLOR);
 		self.layers
 			.show(ui.ctx(), &mut self.mesh, &mut self.edit, ACCENT_COLOR);
 		self.show_face_opacity(ui.ctx());

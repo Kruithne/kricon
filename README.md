@@ -31,6 +31,9 @@ kricon is a purpose-built icon editing utility.
 | `M` | Opens the merge menu. |
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
 | `P` | Toggles a hole in the faces enclosed by the selected vertices. |
+| `Y` | Opens a colour palette at the cursor to set the colour of the selected faces. `Enter` or `Left Click` outside confirms, `Escape` cancels. |
+| `Ctrl` + `Y` | Copies the colour of the selected face to the clipboard as a hex code. |
+| `Shift` + `Y` | Sets the colour of the selected faces from a `#XXXXXX` or `#XXX` hex code in the clipboard. |
 | `Delete` | Deletes the selection. |
 
 ## <img src="res/icons/ico_boring.svg" width="18"> Legal

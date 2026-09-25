@@ -3,9 +3,13 @@ use crate::icon;
 use crate::images::Image;
 use crate::menu::Menu;
 use crate::mesh::Mesh;
+use crate::panel;
 use crate::view::View;
 use eframe::egui::{
-	self, Color32, Event, Key, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2, emath::Rot2,
+	self, Color32, Event, Key, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2,
+	color_picker::{self, Alpha},
+	ecolor::HexColor,
+	emath::Rot2,
 	pos2, vec2,
 };
 use std::f32::consts::TAU;
@@ -96,6 +100,10 @@ enum Operation {
 	Brush,
 	BoxSelect {
 		start: Option<Pos2>,
+	},
+	Palette {
+		pos: Pos2,
+		color: Color32,
 	},
 }
 
@@ -206,6 +214,7 @@ pub struct EditMode {
 	merge_menu: Menu<MenuAction>,
 	brush_radius: f32,
 	history: History,
+	paste_pending: bool,
 }
 
 impl EditMode {
@@ -217,6 +226,7 @@ impl EditMode {
 			merge_menu: Menu::new("Merge", icon::BORING, &MERGE_MENU),
 			brush_radius: BRUSH_RADIUS,
 			history: History::default(),
+			paste_pending: false,
 		}
 	}
 
@@ -226,16 +236,19 @@ impl EditMode {
 		response
 			.ctx
 			.input(|input| self.handle_input(mesh, view, input, hovered, keyboard));
+		self.handle_clipboard(mesh, &response.ctx, keyboard);
 		self.settle_selection();
 	}
 
 	pub fn cancel(&mut self, mesh: &mut Mesh) {
-		let Operation::Transform(transform) = std::mem::take(&mut self.operation) else {
-			return;
-		};
-
-		self.history.revert(mesh);
-		self.selection = transform.before;
+		match std::mem::take(&mut self.operation) {
+			Operation::Transform(transform) => {
+				self.history.revert(mesh);
+				self.selection = transform.before;
+			}
+			Operation::Palette { .. } => self.history.revert(mesh),
+			_ => {}
+		}
 	}
 
 	pub fn move_layer(&mut self, mesh: &mut Mesh, from: usize, target: usize) {
@@ -333,6 +346,32 @@ impl EditMode {
 			}
 		}
 		self.settle_selection();
+	}
+
+	pub fn show_palette(
+		&mut self,
+		ctx: &egui::Context,
+		mesh: &mut Mesh,
+		view: &View,
+		accent: Color32,
+	) {
+		let Operation::Palette { pos, color } = &mut self.operation else {
+			return;
+		};
+
+		let mut changed = false;
+		egui::Area::new(egui::Id::new("palette"))
+			.order(egui::Order::Foreground)
+			.fixed_pos(view.to_screen(*pos))
+			.show(ctx, |ui| {
+				panel::bordered_frame(accent).show(ui, |ui| {
+					changed = color_picker::color_picker_color32(ui, color, Alpha::Opaque);
+				});
+			});
+
+		if changed {
+			mesh.set_color(&self.selection.vertices, *color);
+		}
 	}
 
 	pub fn draw(&self, mesh: &Mesh, view: &View, painter: &egui::Painter, accent: Color32) {
@@ -496,6 +535,10 @@ impl EditMode {
 					self.record(mesh, |edit, mesh| {
 						mesh.toggle_hole(&edit.selection.vertices)
 					});
+				} else if key(Key::Y) && input.modifiers.is_none() {
+					if let Some(color) = mesh.face_color(&self.selection.vertices) {
+						self.operation = Operation::Palette { pos: cursor, color };
+					}
 				} else if key(Key::C) {
 					self.operation = Operation::Brush;
 				} else if key(Key::B) {
@@ -660,15 +703,56 @@ impl EditMode {
 					self.operation = Operation::Idle;
 				}
 			}
+			Operation::Palette { .. } => {
+				if key(Key::Escape) {
+					self.cancel(mesh);
+				} else if key(Key::Enter) || (hovered && input.pointer.any_pressed()) {
+					self.confirm(mesh);
+				}
+			}
+		}
+	}
+
+	fn handle_clipboard(&mut self, mesh: &mut Mesh, ctx: &egui::Context, keyboard: bool) {
+		let (copy, paste, pasted) = ctx.input(|input| {
+			let key = keyboard && input.key_pressed(Key::Y);
+			let pasted = input.events.iter().find_map(|event| match event {
+				Event::Paste(text) => Some(text.clone()),
+				_ => None,
+			});
+			(
+				key && input.modifiers.ctrl,
+				key && input.modifiers.shift,
+				pasted,
+			)
+		});
+
+		let pending = std::mem::replace(&mut self.paste_pending, false);
+		if !matches!(self.operation, Operation::Idle) {
+			return;
+		}
+
+		if copy && let Some(color) = mesh.face_color(&self.selection.vertices) {
+			ctx.copy_text(HexColor::Hex6(color).to_string());
+		} else if paste {
+			self.paste_pending = true;
+			ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+			ctx.request_repaint();
+		} else if pending && let Some(color) = pasted.as_deref().and_then(parse_color) {
+			self.record(mesh, |edit, mesh| {
+				mesh.set_color(&edit.selection.vertices, color)
+			});
 		}
 	}
 
 	fn confirm(&mut self, mesh: &Mesh) {
-		let Operation::Transform(transform) = std::mem::take(&mut self.operation) else {
-			return;
+		let before = match std::mem::take(&mut self.operation) {
+			Operation::Transform(transform) => transform.before,
+			Operation::Palette { .. } => self.selection.clone(),
+			_ => return,
 		};
 
-		self.history.commit(mesh, transform.before, &self.selection);
+		self.history.commit(mesh, before, &self.selection);
 	}
 
 	fn record(&mut self, mesh: &mut Mesh, action: impl FnOnce(&mut Self, &mut Mesh)) {
@@ -955,6 +1039,15 @@ fn axis_line(painter: &egui::Painter, axis: Axis, pos: Pos2) {
 		),
 	};
 	painter.line_segment(points, Stroke::new(AXIS_WIDTH, color));
+}
+
+fn parse_color(text: &str) -> Option<Color32> {
+	let text = text.trim();
+	if !text.starts_with('#') || ![4, 7].contains(&text.len()) {
+		return None;
+	}
+
+	Color32::from_hex(text).ok()
 }
 
 fn wheel_steps(input: &egui::InputState) -> isize {

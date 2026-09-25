@@ -1,9 +1,10 @@
 use crate::history::Splice;
 use crate::images::Image;
-use eframe::egui::{Pos2, Rect, Vec2, vec2};
+use eframe::egui::{Color32, Pos2, Rect, Vec2, vec2};
 use std::collections::{HashMap, HashSet};
 
 const MIN_MITER: f32 = 0.01;
+const FACE_COLOR: Color32 = Color32::WHITE;
 
 #[derive(Clone, Default)]
 pub struct Mesh {
@@ -12,6 +13,7 @@ pub struct Mesh {
 	pub layers: Vec<u32>,
 	vertex_layers: Vec<u32>,
 	holes: Vec<Vec<usize>>,
+	colors: Vec<(Vec<usize>, Color32)>,
 	pub images: Vec<Image>,
 }
 
@@ -21,6 +23,7 @@ pub struct Change {
 	layers: Splice<u32>,
 	vertex_layers: Splice<u32>,
 	holes: Splice<Vec<usize>>,
+	colors: Splice<(Vec<usize>, Color32)>,
 	images: Splice<Image>,
 }
 
@@ -31,6 +34,7 @@ impl Change {
 			&& self.layers.is_empty()
 			&& self.vertex_layers.is_empty()
 			&& self.holes.is_empty()
+			&& self.colors.is_empty()
 			&& self.images.is_empty()
 	}
 }
@@ -43,6 +47,7 @@ impl Mesh {
 			layers: Splice::new(&self.layers, &after.layers),
 			vertex_layers: Splice::new(&self.vertex_layers, &after.vertex_layers),
 			holes: Splice::new(&self.holes, &after.holes),
+			colors: Splice::new(&self.colors, &after.colors),
 			images: Splice::new(&self.images, &after.images),
 		}
 	}
@@ -53,6 +58,7 @@ impl Mesh {
 		change.layers.apply(&mut self.layers, forward);
 		change.vertex_layers.apply(&mut self.vertex_layers, forward);
 		change.holes.apply(&mut self.holes, forward);
+		change.colors.apply(&mut self.colors, forward);
 		change.images.apply(&mut self.images, forward);
 	}
 
@@ -141,9 +147,9 @@ impl Mesh {
 		}
 
 		let keys: Vec<Vec<usize>> = faces.iter().map(|face| face_key(face)).collect();
-		for hole in &mut self.holes {
-			if keys.contains(hole) {
-				*hole = face_key(&hole.iter().map(|&vertex| map(vertex)).collect::<Vec<_>>());
+		for key in self.face_keys() {
+			if keys.contains(key) {
+				*key = face_key(&key.iter().map(|&vertex| map(vertex)).collect::<Vec<_>>());
 			}
 		}
 
@@ -213,8 +219,8 @@ impl Mesh {
 			}
 		}
 
-		for hole in &mut self.holes {
-			*hole = face_key(&hole.iter().map(|&vertex| map(vertex)).collect::<Vec<_>>());
+		for key in self.face_keys() {
+			*key = face_key(&key.iter().map(|&vertex| map(vertex)).collect::<Vec<_>>());
 		}
 
 		let removed = vertices.iter().copied().filter(|&vertex| vertex != target);
@@ -267,9 +273,9 @@ impl Mesh {
 			self.edges[index] = [a, midpoint];
 			self.edges.push([midpoint, b]);
 
-			for hole in &mut self.holes {
-				if hole.contains(&a) && hole.contains(&b) {
-					hole.push(midpoint);
+			for key in self.face_keys() {
+				if key.contains(&a) && key.contains(&b) {
+					key.push(midpoint);
 				}
 			}
 			midpoints.push(midpoint);
@@ -324,17 +330,24 @@ impl Mesh {
 	}
 
 	pub fn toggle_hole(&mut self, vertices: &[usize]) {
-		let faces: Vec<Vec<usize>> = self
-			.faces()
-			.iter()
-			.map(|face| face_key(face))
-			.filter(|key| key.iter().all(|vertex| vertices.contains(vertex)))
-			.collect();
+		let faces = self.enclosed_faces(vertices);
 		let fill = faces.iter().all(|key| self.holes.contains(key));
 		self.holes.retain(|hole| !faces.contains(hole));
 		if !fill {
 			self.holes.extend(faces);
 		}
+	}
+
+	pub fn face_color(&self, vertices: &[usize]) -> Option<Color32> {
+		let face = self.enclosed_faces(vertices).into_iter().next()?;
+		Some(self.color_of(&face))
+	}
+
+	pub fn set_color(&mut self, vertices: &[usize], color: Color32) {
+		let faces = self.enclosed_faces(vertices);
+		self.colors.retain(|(key, _)| !faces.contains(key));
+		self.colors
+			.extend(faces.into_iter().map(|face| (face, color)));
 	}
 
 	pub fn nearest_vertex(&self, pos: Pos2, radius: f32) -> Option<usize> {
@@ -402,14 +415,17 @@ impl Mesh {
 		self.sync_layers();
 	}
 
-	pub fn triangles(&self) -> Vec<[usize; 3]> {
+	pub fn triangles(&self) -> Vec<([usize; 3], Color32)> {
 		let mut triangles = Vec::new();
 		for face in self.filled_faces() {
-			self.triangulate(face, &mut triangles);
+			let color = self.color_of(&face_key(&face));
+			for triangle in self.triangulate(face) {
+				triangles.push((triangle, color));
+			}
 		}
 
 		let ranks = self.ranks();
-		triangles.sort_by_key(|&[a, _, _]| std::cmp::Reverse(ranks[&self.vertex_layers[a]]));
+		triangles.sort_by_key(|&([a, _, _], _)| std::cmp::Reverse(ranks[&self.vertex_layers[a]]));
 		triangles
 	}
 
@@ -440,6 +456,17 @@ impl Mesh {
 				.collect();
 			if let Some(copy) = copy {
 				self.holes.push(face_key(&copy));
+			}
+		}
+
+		for index in 0..self.colors.len() {
+			let (key, color) = &self.colors[index];
+			let copy: Option<Vec<usize>> = key
+				.iter()
+				.map(|vertex| copies.get(vertex).copied())
+				.collect();
+			if let Some(copy) = copy {
+				self.colors.push((face_key(&copy), *color));
 			}
 		}
 
@@ -564,15 +591,37 @@ impl Mesh {
 			}
 		}
 
-		for hole in &mut self.holes {
-			hole.retain(|&vertex| vertex != index);
-			for vertex in hole.iter_mut() {
+		for key in self.face_keys() {
+			key.retain(|&vertex| vertex != index);
+			for vertex in key.iter_mut() {
 				if *vertex > index {
 					*vertex -= 1;
 				}
 			}
 		}
 		self.holes.retain(|hole| hole.len() >= 3);
+		self.colors.retain(|(key, _)| key.len() >= 3);
+	}
+
+	fn face_keys(&mut self) -> impl Iterator<Item = &mut Vec<usize>> {
+		self.holes
+			.iter_mut()
+			.chain(self.colors.iter_mut().map(|(key, _)| key))
+	}
+
+	fn enclosed_faces(&self, vertices: &[usize]) -> Vec<Vec<usize>> {
+		self.faces()
+			.iter()
+			.map(|face| face_key(face))
+			.filter(|key| key.iter().all(|vertex| vertices.contains(vertex)))
+			.collect()
+	}
+
+	fn color_of(&self, key: &[usize]) -> Color32 {
+		self.colors
+			.iter()
+			.find(|(face, _)| face == key)
+			.map_or(FACE_COLOR, |&(_, color)| color)
 	}
 
 	fn filled_faces(&self) -> Vec<Vec<usize>> {
@@ -656,7 +705,8 @@ impl Mesh {
 		encloses(&points, pos)
 	}
 
-	fn triangulate(&self, mut face: Vec<usize>, triangles: &mut Vec<[usize; 3]>) {
+	fn triangulate(&self, mut face: Vec<usize>) -> Vec<[usize; 3]> {
+		let mut triangles = Vec::new();
 		while face.len() > 3 {
 			let count = face.len();
 			let corner = |index: usize| {
@@ -677,7 +727,7 @@ impl Mesh {
 			});
 
 			let Some(ear) = ear else {
-				return;
+				return triangles;
 			};
 
 			triangles.push(corner(ear));
@@ -687,6 +737,7 @@ impl Mesh {
 		if let [a, b, c] = face[..] {
 			triangles.push([a, b, c]);
 		}
+		triangles
 	}
 }
 
