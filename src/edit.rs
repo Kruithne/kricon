@@ -28,6 +28,8 @@ const CIRCLE_RADIUS: f32 = 1.0;
 const CIRCLE_SEGMENTS: usize = 16;
 const MIN_CIRCLE_SEGMENTS: usize = 3;
 const MAX_CIRCLE_SEGMENTS: usize = 128;
+const CURVE_POINTS: usize = 8;
+const CAGE_OPACITY: f32 = 0.4;
 const PRIMITIVE_SCALE_STEP: f32 = 1.1;
 const TOOL_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
 const TOOL_WIDTH: f32 = 1.5;
@@ -35,10 +37,11 @@ const BRUSH_RADIUS: f32 = 24.0;
 const BRUSH_STEP: f32 = 4.0;
 const MIN_BRUSH_RADIUS: f32 = 4.0;
 const MAX_BRUSH_RADIUS: f32 = 256.0;
-const CREATE_MENU: [(MenuAction, &str, &str); 3] = [
+const CREATE_MENU: [(MenuAction, &str, &str); 4] = [
 	(MenuAction::AddVertex, "Add Vertex (V)", icon::BORING),
 	(MenuAction::AddRect, "Add Rect", icon::BORING),
 	(MenuAction::AddCircle, "Add Circle", icon::BORING),
+	(MenuAction::AddCurve, "Add Curve", icon::BORING),
 ];
 const MERGE_MENU: [(MenuAction, &str, &str); 4] = [
 	(
@@ -68,6 +71,7 @@ enum MenuAction {
 	AddVertex,
 	AddRect,
 	AddCircle,
+	AddCurve,
 	Merge(MergeTarget),
 }
 
@@ -334,12 +338,20 @@ impl EditMode {
 					edit.selection.vertices = vec![mesh.add_vertex(pos)]
 				});
 			}
-			MenuAction::AddRect => self.add_primitive(mesh, &rect_points(pos), pos, None),
+			MenuAction::AddRect => self.add_primitive(mesh, &rect_points(pos), pos, None, false),
 			MenuAction::AddCircle => self.add_primitive(
 				mesh,
 				&circle_points(pos, CIRCLE_SEGMENTS, CIRCLE_RADIUS),
 				pos,
 				Some(CIRCLE_SEGMENTS),
+				false,
+			),
+			MenuAction::AddCurve => self.add_primitive(
+				mesh,
+				&circle_points(pos, CURVE_POINTS, CIRCLE_RADIUS),
+				pos,
+				Some(CURVE_POINTS),
+				true,
 			),
 			MenuAction::Merge(target) => {
 				self.record(mesh, |edit, mesh| edit.merge(mesh, target, pos));
@@ -397,10 +409,21 @@ impl EditMode {
 				view.to_screen(mesh.vertices[a]),
 				view.to_screen(mesh.vertices[b]),
 			];
-			painter.line_segment(
+			let color = color(selected[a] && selected[b]);
+			let color = if mesh.is_curve(a) {
+				color.gamma_multiply(CAGE_OPACITY)
+			} else {
+				color
+			};
+			painter.line_segment(points, Stroke::new(EDGE_WIDTH, color));
+		}
+
+		for outline in mesh.curve_outlines() {
+			let points = outline.into_iter().map(|pos| view.to_screen(pos)).collect();
+			painter.add(egui::Shape::closed_line(
 				points,
-				Stroke::new(EDGE_WIDTH, color(selected[a] && selected[b])),
-			);
+				Stroke::new(EDGE_WIDTH, accent),
+			));
 		}
 
 		if let Operation::Transform(transform) = &self.operation {
@@ -614,9 +637,10 @@ impl EditMode {
 						.saturating_add_signed(steps)
 						.clamp(MIN_CIRCLE_SEGMENTS, MAX_CIRCLE_SEGMENTS);
 					let radius = transform.original[0].distance(transform.pivot);
+					let curve = mesh.is_curve(self.selection.vertices[0]);
 					mesh.remove_vertices(std::mem::take(&mut self.selection.vertices));
 					self.selection.vertices =
-						mesh.add_loop(&circle_points(transform.pivot, *segments, radius));
+						mesh.add_loop(&circle_points(transform.pivot, *segments, radius), curve);
 					transform.original = self
 						.selection
 						.vertices
@@ -882,8 +906,9 @@ impl EditMode {
 		points: &[Pos2],
 		cursor: Pos2,
 		segments: Option<usize>,
+		curve: bool,
 	) {
-		let sources = std::mem::replace(&mut self.selection.vertices, mesh.add_loop(points));
+		let sources = std::mem::replace(&mut self.selection.vertices, mesh.add_loop(points, curve));
 		self.begin_transform(mesh, TransformKind::Translate, cursor, false, sources);
 		if let Operation::Transform(transform) = &mut self.operation {
 			transform.primitive = true;

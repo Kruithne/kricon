@@ -1,6 +1,6 @@
 use crate::edit::{self, EditMode};
 use crate::icon;
-use crate::mesh::Mesh;
+use crate::mesh::{Layer, Mesh};
 use crate::panel::{self, Header};
 use eframe::egui;
 use std::collections::HashMap;
@@ -69,7 +69,7 @@ impl Layers {
 
 				let mut rows = Vec::new();
 				let mut dragged = None;
-				for (index, &layer) in mesh.layers.iter().enumerate() {
+				for (index, &Layer { id: layer, curve }) in mesh.layers.iter().enumerate() {
 					let (rect, response, color) = panel::item(
 						ui,
 						egui::vec2(PANEL_WIDTH, panel::ITEM_HEIGHT),
@@ -94,7 +94,8 @@ impl Layers {
 						Some(_) => draw_partial(ui.painter(), indicator, accent),
 						None => {}
 					}
-					panel::paint_label(ui, indicator, &format!("Shape {layer}"), color);
+					let kind = if curve { "Curve" } else { "Shape" };
+					panel::paint_label(ui, indicator, &format!("{kind} {layer}"), color);
 					rows.push(rect);
 				}
 

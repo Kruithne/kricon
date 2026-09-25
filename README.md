@@ -27,7 +27,7 @@ kricon is a purpose-built icon editing utility.
 | `B` | Starts box selection. Drag with `Left Click` to select the vertices in the box. |
 | `L` | Selects all linked vertices to the currently selected. |
 | `W` | Opens the create menu. |
-| `Shift` + `Scroll` | Scales the new primitive before placement. `Scroll` sets the vertex count of a new circle. |
+| `Shift` + `Scroll` | Scales the new primitive before placement. `Scroll` sets the vertex count of a new circle or curve. |
 | `M` | Opens the merge menu. |
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
 | `P` | Toggles a hole in the faces enclosed by the selected vertices. |

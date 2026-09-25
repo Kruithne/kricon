@@ -5,12 +5,19 @@ use std::collections::{HashMap, HashSet};
 
 const MIN_MITER: f32 = 0.01;
 const FACE_COLOR: Color32 = Color32::WHITE;
+const CURVE_SEGMENTS: usize = 16;
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct Layer {
+	pub id: u32,
+	pub curve: bool,
+}
 
 #[derive(Clone, Default)]
 pub struct Mesh {
 	pub vertices: Vec<Pos2>,
 	pub edges: Vec<[usize; 2]>,
-	pub layers: Vec<u32>,
+	pub layers: Vec<Layer>,
 	vertex_layers: Vec<u32>,
 	holes: Vec<Vec<usize>>,
 	colors: Vec<(Vec<usize>, Color32)>,
@@ -20,7 +27,7 @@ pub struct Mesh {
 pub struct Change {
 	vertices: Splice<Pos2>,
 	edges: Splice<[usize; 2]>,
-	layers: Splice<u32>,
+	layers: Splice<Layer>,
 	vertex_layers: Splice<u32>,
 	holes: Splice<Vec<usize>>,
 	colors: Splice<(Vec<usize>, Color32)>,
@@ -64,15 +71,21 @@ impl Mesh {
 
 	pub fn add_vertex(&mut self, pos: Pos2) -> usize {
 		let layer = self.new_layer();
-		self.layers.insert(0, layer);
+		self.layers.insert(
+			0,
+			Layer {
+				id: layer,
+				curve: false,
+			},
+		);
 		self.vertex_layers.push(layer);
 		self.vertices.push(pos);
 		self.vertices.len() - 1
 	}
 
-	pub fn add_loop(&mut self, points: &[Pos2]) -> Vec<usize> {
+	pub fn add_loop(&mut self, points: &[Pos2], curve: bool) -> Vec<usize> {
 		let layer = self.new_layer();
-		self.layers.insert(0, layer);
+		self.layers.insert(0, Layer { id: layer, curve });
 
 		let offset = self.vertices.len();
 		for (index, &pos) in points.iter().enumerate() {
@@ -182,6 +195,21 @@ impl Mesh {
 
 	pub fn layer(&self, vertex: usize) -> u32 {
 		self.vertex_layers[vertex]
+	}
+
+	pub fn is_curve(&self, vertex: usize) -> bool {
+		let id = self.vertex_layers[vertex];
+		self.layers
+			.iter()
+			.any(|layer| layer.id == id && layer.curve)
+	}
+
+	pub fn curve_outlines(&self) -> Vec<Vec<Pos2>> {
+		self.faces()
+			.iter()
+			.filter(|face| self.is_curve(face[0]))
+			.map(|face| self.outline(face))
+			.collect()
 	}
 
 	pub fn layer_vertices(&self, layer: u32) -> impl Iterator<Item = usize> {
@@ -381,7 +409,7 @@ impl Mesh {
 		let key = |face: &Vec<usize>| (ranks[&self.vertex_layers[face[0]]], self.signed_area(face));
 		self.filled_faces()
 			.into_iter()
-			.filter(|face| self.encloses(face, pos))
+			.filter(|face| encloses(&self.outline(face), pos))
 			.min_by(|a, b| {
 				let (a, b) = (key(a), key(b));
 				a.0.cmp(&b.0).then(a.1.total_cmp(&b.1))
@@ -415,17 +443,18 @@ impl Mesh {
 		self.sync_layers();
 	}
 
-	pub fn triangles(&self) -> Vec<([usize; 3], Color32)> {
+	pub fn triangles(&self) -> Vec<([Pos2; 3], Color32)> {
+		let ranks = self.ranks();
+		let mut faces = self.filled_faces();
+		faces.sort_by_key(|face| std::cmp::Reverse(ranks[&self.vertex_layers[face[0]]]));
+
 		let mut triangles = Vec::new();
-		for face in self.filled_faces() {
+		for face in faces {
 			let color = self.color_of(&face_key(&face));
-			for triangle in self.triangulate(face) {
+			for triangle in triangulate(self.outline(&face)) {
 				triangles.push((triangle, color));
 			}
 		}
-
-		let ranks = self.ranks();
-		triangles.sort_by_key(|&([a, _, _], _)| std::cmp::Reverse(ranks[&self.vertex_layers[a]]));
 		triangles
 	}
 
@@ -499,12 +528,23 @@ impl Mesh {
 		self.layers
 			.iter()
 			.enumerate()
-			.map(|(rank, &layer)| (layer, rank))
+			.map(|(rank, layer)| (layer.id, rank))
 			.collect()
 	}
 
 	fn new_layer(&self) -> u32 {
-		(1..).find(|id| !self.layers.contains(id)).unwrap()
+		(1..)
+			.find(|&id| !self.layers.iter().any(|layer| layer.id == id))
+			.unwrap()
+	}
+
+	fn outline(&self, face: &[usize]) -> Vec<Pos2> {
+		let points: Vec<Pos2> = face.iter().map(|&vertex| self.vertices[vertex]).collect();
+		if self.is_curve(face[0]) {
+			spline(&points)
+		} else {
+			points
+		}
 	}
 
 	fn sync_layers(&mut self) {
@@ -526,7 +566,7 @@ impl Mesh {
 
 		let mut owners: Vec<u32> = owners.into_iter().flatten().collect();
 		let used: HashSet<u32> = owners.iter().copied().collect();
-		self.layers.retain(|layer| used.contains(layer));
+		self.layers.retain(|layer| used.contains(&layer.id));
 
 		let mut claimed = HashSet::new();
 		for owner in &mut owners {
@@ -534,10 +574,15 @@ impl Mesh {
 				continue;
 			}
 
-			let layer = self.new_layer();
-			let position = self.layers.iter().position(|&id| id == *owner).unwrap();
-			self.layers.insert(position + 1, layer);
-			*owner = layer;
+			let id = self.new_layer();
+			let position = self
+				.layers
+				.iter()
+				.position(|layer| layer.id == *owner)
+				.unwrap();
+			let curve = self.layers[position].curve;
+			self.layers.insert(position + 1, Layer { id, curve });
+			*owner = id;
 		}
 
 		for (layer, &component) in self.vertex_layers.iter_mut().zip(&components) {
@@ -699,46 +744,6 @@ impl Mesh {
 		}
 		area / 2.0
 	}
-
-	fn encloses(&self, face: &[usize], pos: Pos2) -> bool {
-		let points: Vec<Pos2> = face.iter().map(|&vertex| self.vertices[vertex]).collect();
-		encloses(&points, pos)
-	}
-
-	fn triangulate(&self, mut face: Vec<usize>) -> Vec<[usize; 3]> {
-		let mut triangles = Vec::new();
-		while face.len() > 3 {
-			let count = face.len();
-			let corner = |index: usize| {
-				[
-					face[(index + count - 1) % count],
-					face[index],
-					face[(index + 1) % count],
-				]
-			};
-
-			let ear = (0..count).find(|&index| {
-				let [a, b, c] = corner(index).map(|vertex| self.vertices[vertex]);
-				cross(b - a, c - b) > 0.0
-					&& !face.iter().any(|&vertex| {
-						let p = self.vertices[vertex];
-						p != a && p != b && p != c && inside_triangle(p, a, b, c)
-					})
-			});
-
-			let Some(ear) = ear else {
-				return triangles;
-			};
-
-			triangles.push(corner(ear));
-			face.remove(ear);
-		}
-
-		if let [a, b, c] = face[..] {
-			triangles.push([a, b, c]);
-		}
-		triangles
-	}
 }
 
 pub fn encloses(polygon: &[Pos2], pos: Pos2) -> bool {
@@ -778,4 +783,56 @@ fn arc_point(p: Pos2, a: Pos2, b: Pos2) -> Option<Pos2> {
 
 fn inside_triangle(p: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
 	cross(b - a, p - a) >= 0.0 && cross(c - b, p - b) >= 0.0 && cross(a - c, p - c) >= 0.0
+}
+
+fn spline(points: &[Pos2]) -> Vec<Pos2> {
+	let count = points.len();
+	let mut outline = Vec::with_capacity(count * CURVE_SEGMENTS);
+	for index in 0..count {
+		let [a, b, c, d] = [0, 1, 2, 3].map(|offset| points[(index + offset) % count].to_vec2());
+		for step in 0..CURVE_SEGMENTS {
+			let t = step as f32 / CURVE_SEGMENTS as f32;
+			let u = 1.0 - t;
+			let pos = a * (u * u * u)
+				+ b * (3.0 * t * t * t - 6.0 * t * t + 4.0)
+				+ c * (-3.0 * t * t * t + 3.0 * t * t + 3.0 * t + 1.0)
+				+ d * (t * t * t);
+			outline.push((pos / 6.0).to_pos2());
+		}
+	}
+	outline
+}
+
+fn triangulate(mut polygon: Vec<Pos2>) -> Vec<[Pos2; 3]> {
+	let mut triangles = Vec::new();
+	while polygon.len() > 3 {
+		let count = polygon.len();
+		let corner = |index: usize| {
+			[
+				polygon[(index + count - 1) % count],
+				polygon[index],
+				polygon[(index + 1) % count],
+			]
+		};
+
+		let ear = (0..count).find(|&index| {
+			let [a, b, c] = corner(index);
+			cross(b - a, c - b) > 0.0
+				&& !polygon
+					.iter()
+					.any(|&p| p != a && p != b && p != c && inside_triangle(p, a, b, c))
+		});
+
+		let Some(ear) = ear else {
+			return triangles;
+		};
+
+		triangles.push(corner(ear));
+		polygon.remove(ear);
+	}
+
+	if let [a, b, c] = polygon[..] {
+		triangles.push([a, b, c]);
+	}
+	triangles
 }

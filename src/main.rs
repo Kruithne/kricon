@@ -58,8 +58,8 @@ impl App {
 		for (triangle, color) in self.mesh.triangles() {
 			let color = color.gamma_multiply(self.face_opacity);
 			let index = shape.vertices.len() as u32;
-			for vertex in triangle {
-				shape.colored_vertex(self.view.to_screen(self.mesh.vertices[vertex]), color);
+			for pos in triangle {
+				shape.colored_vertex(self.view.to_screen(pos), color);
 			}
 			shape.add_triangle(index, index + 1, index + 2);
 		}
