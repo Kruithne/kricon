@@ -315,7 +315,7 @@ impl App {
 
 					let images = &mut self.edit.show_images;
 					if button(ui, &mut self.images_icon, *images)
-						.on_hover_text("Toggle Images")
+						.on_hover_text("Toggle Images (Shift+Z)")
 						.clicked()
 					{
 						*images = !*images;
@@ -323,7 +323,7 @@ impl App {
 
 					let outlines = &mut self.edit.show_outlines;
 					if button(ui, &mut self.outlines_icon, *outlines)
-						.on_hover_text("Toggle Outlines")
+						.on_hover_text("Toggle Outlines (Z)")
 						.clicked()
 					{
 						*outlines = !*outlines;

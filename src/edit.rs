@@ -129,6 +129,8 @@ enum Action {
 	Brush,
 	BoxSelect,
 	Magnet,
+	ToggleOutlines,
+	ToggleImages,
 	Menu(MenuKind),
 	MainMenu,
 	Merge(MergeTarget),
@@ -1071,6 +1073,8 @@ impl EditMode {
 			Action::Brush => self.operation = Operation::Brush,
 			Action::BoxSelect => self.operation = Operation::BoxSelect { start: None },
 			Action::Magnet => self.magnet = !self.magnet,
+			Action::ToggleOutlines => self.show_outlines = !self.show_outlines,
+			Action::ToggleImages => self.show_images = !self.show_images,
 			Action::Menu(kind) => self.operation = Operation::Menu { pos: cursor, kind },
 			Action::MainMenu => self.open_menu(view.to_screen(cursor)),
 			Action::Merge(target) => {
@@ -1450,6 +1454,10 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::BoxSelect
 	} else if plain(Key::K) {
 		Action::Magnet
+	} else if key(Key::Z) && modifiers.shift {
+		Action::ToggleImages
+	} else if plain(Key::Z) {
+		Action::ToggleOutlines
 	} else if plain(Key::Delete) {
 		Action::Delete
 	} else {
