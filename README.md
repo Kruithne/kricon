@@ -1,8 +1,23 @@
-# <img src="res/kricon.svg" width="18"> kricon
+# <img src="res/kricon.svg" width="18"> kricon <img src="https://img.shields.io/badge/rust-B7410E"> 
 
 kricon is a purpose-built icon editing utility.
 
-## <img src="res/icons/ico_boring.svg" width="18"> Controls
+It exists because I wanted a tool to edit icons in a specific way that felt natural to me. After using both Adobe Illustrator and Blender extensively for this purpose, I found myself wanting a middle-ground between the two, with some additional features.
+
+The single most powerful feature I wanted is to select a shape, copy it to the clipboard and be able to paste it into Figma, VS Code etc directly as SVG markup. No exporting, no converting; it just works.
+
+The controls should feel familiar to anyone who's used Blender. Check out the controls list below for a full list of features.
+
+## <img src="res/icons/ico_image.svg" width="18"> Screenshots
+
+<img src="screenshots/kricon_screenshot_1.png">
+<p align="center"><i>Screenshot of the kricon interface</i></p>
+
+## Download
+
+Release versions of the tool are built automatically for <b>Windows</b>, <b>macOS</b> (Intel/Apple) and <b>Linux</b> from the latest source code and can be found on the [releases page](https://github.com/Kruithne/kricon/releases).
+
+## <img src="res/icons/ico_menu.svg" width="18"> Controls
 
 | Key | Action |
 | --- | --- |
