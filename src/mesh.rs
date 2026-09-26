@@ -13,6 +13,8 @@ const FACE_COLOR: Color32 = Color32::WHITE;
 const CURVE_SEGMENTS: usize = 16;
 const SKEW_TOLERANCE: f32 = 0.1;
 const MIN_PIECE_AREA: f32 = 1e-6;
+const MIN_FIT_AREA: f32 = 1e-6;
+const FIT_TOLERANCE: f32 = 1e-3;
 
 #[derive(Clone, PartialEq)]
 pub struct Layer {
@@ -50,9 +52,99 @@ struct LayerCache {
 	curve: bool,
 	faces: Vec<Vec<Pos2>>,
 	shapes: Vec<Vec<[Pos2; 3]>>,
+	moved: Option<Affine>,
 	colors: Vec<Color32>,
 	above: Vec<[Pos2; 3]>,
 	triangles: Option<(Vec<([Pos2; 3], Color32)>, Rect)>,
+}
+
+impl LayerCache {
+	fn place(&self, triangle: [Pos2; 3]) -> [Pos2; 3] {
+		match &self.moved {
+			Some(affine) => triangle.map(|pos| affine.apply(pos)),
+			None => triangle,
+		}
+	}
+
+	fn follows(&self, above: &[[Pos2; 3]]) -> bool {
+		let Some(affine) = &self.moved else {
+			return self.above == above;
+		};
+
+		self.above.len() == above.len()
+			&& self
+				.above
+				.iter()
+				.flatten()
+				.zip(above.iter().flatten())
+				.all(|(&before, &after)| affine.maps(before, after))
+	}
+}
+
+struct Affine {
+	from: Pos2,
+	to: Pos2,
+	x: Vec2,
+	y: Vec2,
+}
+
+impl Affine {
+	fn fit(before: &[Vec<Pos2>], after: &[Vec<Pos2>]) -> Option<Self> {
+		if before.len() != after.len()
+			|| before
+				.iter()
+				.zip(after)
+				.any(|(before, after)| before.len() != after.len())
+		{
+			return None;
+		}
+
+		let pairs: Vec<(Pos2, Pos2)> = before
+			.iter()
+			.flatten()
+			.copied()
+			.zip(after.iter().flatten().copied())
+			.collect();
+		let &(a, a2) = pairs.first()?;
+		let &(b, b2) = pairs
+			.iter()
+			.max_by(|p, q| p.0.distance_sq(a).total_cmp(&q.0.distance_sq(a)))?;
+		let spread = |p: Pos2| cross(b - a, p - a).abs();
+		let &(c, c2) = pairs
+			.iter()
+			.max_by(|p, q| spread(p.0).total_cmp(&spread(q.0)))?;
+
+		let (u, v) = (b - a, c - a);
+		let det = cross(u, v);
+		if det.abs() < MIN_FIT_AREA {
+			return None;
+		}
+
+		let (u2, v2) = (b2 - a2, c2 - a2);
+		let affine = Self {
+			from: a,
+			to: a2,
+			x: (u2 * v.y - v2 * u.y) / det,
+			y: (v2 * u.x - u2 * v.x) / det,
+		};
+		if cross(affine.x, affine.y) < MIN_FIT_AREA {
+			return None;
+		}
+
+		pairs
+			.iter()
+			.all(|&(before, after)| affine.maps(before, after))
+			.then_some(affine)
+	}
+
+	fn apply(&self, pos: Pos2) -> Pos2 {
+		let offset = pos - self.from;
+		self.to + self.x * offset.x + self.y * offset.y
+	}
+
+	fn maps(&self, before: Pos2, after: Pos2) -> bool {
+		self.apply(before).distance_sq(after) < FIT_TOLERANCE * FIT_TOLERANCE
+	}
 }
 
 impl Geometry {
@@ -627,11 +719,14 @@ impl Mesh {
 		for (&id, faces) in &grouped {
 			let entry = cache.entry(id).or_default();
 			let curve = curves.contains(&id);
-			let points: Vec<Vec<Pos2>> = faces
-				.iter()
-				.map(|face| face.iter().map(|&vertex| self.vertices[vertex]).collect())
-				.collect();
+			let points = self.face_points(faces);
 			if entry.curve == curve && entry.faces == points {
+				entry.moved = None;
+				continue;
+			}
+
+			entry.moved = Affine::fit(&entry.faces, &points).filter(|_| entry.curve == curve);
+			if entry.moved.is_some() {
 				continue;
 			}
 
@@ -653,11 +748,11 @@ impl Mesh {
 			*count += 1;
 			if holdouts.contains(&id) {
 				let rank = ranks[&id];
-				cutters.extend(
-					cache[&id].shapes[index]
-						.iter()
-						.map(|&triangle| (rank, Rect::from_points(&triangle), triangle)),
-				);
+				let entry = &cache[&id];
+				cutters.extend(entry.shapes[index].iter().map(|&triangle| {
+					let triangle = entry.place(triangle);
+					(rank, Rect::from_points(&triangle), triangle)
+				}));
 			}
 		}
 
@@ -687,7 +782,14 @@ impl Mesh {
 				.collect();
 
 			let entry = cache.get_mut(&id).unwrap();
-			if entry.triangles.is_none() || entry.above != above || entry.colors != colors {
+			if entry.triangles.is_none() || entry.colors != colors || !entry.follows(&above) {
+				if let Some(affine) = entry.moved.take() {
+					for triangle in entry.shapes.iter_mut().flatten() {
+						*triangle = triangle.map(|pos| affine.apply(pos));
+					}
+					entry.faces = self.face_points(&grouped[&id]);
+				}
+
 				let cutters: Vec<(Rect, &[Pos2; 3])> = above
 					.iter()
 					.map(|cutter| (Rect::from_points(cutter), cutter))
@@ -711,19 +813,32 @@ impl Mesh {
 						}
 					}
 				}
-				let bounds = built.iter().fold(Rect::NOTHING, |bounds, (triangle, _)| {
-					bounds.union(Rect::from_points(triangle))
-				});
+				let bounds = triangle_bounds(&built);
 				entry.triangles = Some((built, bounds));
 				entry.above = above;
 				entry.colors = colors;
 			}
 			let (built, bounds) = entry.triangles.as_ref().unwrap();
 			let start = triangles.len();
-			triangles.extend_from_slice(built);
-			spans.push((*bounds, start..triangles.len()));
+			triangles.extend(
+				built
+					.iter()
+					.map(|&(triangle, color)| (entry.place(triangle), color)),
+			);
+			let bounds = match entry.moved {
+				Some(_) => triangle_bounds(&triangles[start..]),
+				None => *bounds,
+			};
+			spans.push((bounds, start..triangles.len()));
 		}
 		(triangles, spans)
+	}
+
+	fn face_points(&self, faces: &[&Vec<usize>]) -> Vec<Vec<Pos2>> {
+		faces
+			.iter()
+			.map(|face| face.iter().map(|&vertex| self.vertices[vertex]).collect())
+			.collect()
 	}
 
 	fn regions(&self, filled: &[Vec<usize>]) -> Vec<Region> {
@@ -1237,6 +1352,14 @@ fn split(polygon: &[Pos2], a: Pos2, b: Pos2) -> [Vec<Pos2>; 2] {
 		}
 	}
 	halves
+}
+
+fn triangle_bounds(triangles: &[([Pos2; 3], Color32)]) -> Rect {
+	triangles
+		.iter()
+		.fold(Rect::NOTHING, |bounds, (triangle, _)| {
+			bounds.union(Rect::from_points(triangle))
+		})
 }
 
 fn color_in(colors: &HashMap<&[usize], Color32>, key: &[usize]) -> Color32 {
