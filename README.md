@@ -1,4 +1,4 @@
-# <img src="res/kricon.svg" width="18"> kricon <img src="https://img.shields.io/badge/rust-B7410E"> 
+# <img src="res/kricon.svg" width="18"> kricon <img align="right" hspace="3" vspace="10" src="res/icons/ico_linux.svg" height="18"> <img align="right" hspace="3" vspace="10" src="res/icons/ico_macos.svg" height="18"> <img align="right" hspace="3" vspace="10" src="res/icons/ico_win.svg" height="18">
 
 kricon is a purpose-built icon editing utility.
 
