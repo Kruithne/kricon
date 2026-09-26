@@ -39,6 +39,7 @@ const MAX_SPACING: f32 = 8.0;
 const SPACING_STEP: f32 = 0.5;
 const MARGIN: f32 = 12.0;
 const BUTTON_ICON_SIZE: f32 = 20.0;
+const CULL_MARGIN: f32 = 8.0;
 
 struct App {
 	view: View,
@@ -76,9 +77,16 @@ impl App {
 		}
 	}
 
-	fn draw_faces(&self, painter: &egui::Painter) {
+	fn draw_faces(&self, painter: &egui::Painter, visible: egui::Rect) {
 		let mut shape = egui::Mesh::default();
-		for &(triangle, color) in &self.geometry.triangles {
+		let triangles = self
+			.geometry
+			.spans
+			.iter()
+			.filter(|(bounds, _)| bounds.intersects(visible))
+			.flat_map(|(_, span)| &self.geometry.triangles[span.clone()])
+			.filter(|(triangle, _)| egui::Rect::from_points(triangle).intersects(visible));
+		for &(triangle, color) in triangles {
 			let color = color.gamma_multiply(self.face_opacity);
 			let index = shape.vertices.len() as u32;
 			for pos in triangle {
@@ -346,6 +354,7 @@ impl eframe::App for App {
 
 		self.geometry.update(&self.mesh);
 
+		let visible = self.view.to_world_rect(rect.expand(CULL_MARGIN));
 		let painter = ui.painter();
 		painter.rect_filled(rect, 0.0, BACKGROUND_COLOR);
 		self.draw_grid(painter, rect);
@@ -354,11 +363,12 @@ impl eframe::App for App {
 				image.draw(&self.view, painter);
 			}
 		}
-		self.draw_faces(painter);
+		self.draw_faces(painter, visible);
 		self.edit.draw(
 			&self.mesh,
 			&self.geometry.curve_outlines,
 			&self.view,
+			visible,
 			painter,
 			ACCENT_COLOR,
 		);

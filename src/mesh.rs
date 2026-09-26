@@ -6,6 +6,7 @@ use crate::import::Shape;
 use eframe::egui::{Color32, Pos2, Rect, Vec2, vec2};
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 const MIN_MITER: f32 = 0.01;
 const FACE_COLOR: Color32 = Color32::WHITE;
@@ -36,7 +37,8 @@ pub struct Region {
 #[derive(Default)]
 pub struct Geometry {
 	pub triangles: Vec<([Pos2; 3], Color32)>,
-	pub curve_outlines: Vec<Vec<Pos2>>,
+	pub spans: Vec<(Rect, Range<usize>)>,
+	pub curve_outlines: Vec<(Rect, Vec<Pos2>)>,
 	pub regions: Vec<Region>,
 	pub revision: u64,
 	source: Mesh,
@@ -50,7 +52,7 @@ struct LayerCache {
 	shapes: Vec<Vec<[Pos2; 3]>>,
 	colors: Vec<Color32>,
 	above: Vec<[Pos2; 3]>,
-	triangles: Option<Vec<([Pos2; 3], Color32)>>,
+	triangles: Option<(Vec<([Pos2; 3], Color32)>, Rect)>,
 }
 
 impl Geometry {
@@ -69,7 +71,7 @@ impl Geometry {
 		let faces = mesh.faces();
 		self.curve_outlines = mesh.curve_outlines(&faces);
 		let filled = mesh.filled(faces);
-		self.triangles = mesh.triangles(&filled, &mut self.layers);
+		(self.triangles, self.spans) = mesh.triangles(&filled, &mut self.layers);
 		self.regions = mesh.regions(&filled);
 		self.revision += 1;
 
@@ -318,12 +320,15 @@ impl Mesh {
 		}
 	}
 
-	fn curve_outlines(&self, faces: &[Vec<usize>]) -> Vec<Vec<Pos2>> {
+	fn curve_outlines(&self, faces: &[Vec<usize>]) -> Vec<(Rect, Vec<Pos2>)> {
 		let curves = self.curves();
 		faces
 			.iter()
 			.filter(|face| curves.contains(&self.vertex_layers[face[0]]))
-			.map(|face| self.outline(face, &curves))
+			.map(|face| {
+				let outline = self.outline(face, &curves);
+				(Rect::from_points(&outline), outline)
+			})
 			.collect()
 	}
 
@@ -605,7 +610,7 @@ impl Mesh {
 		&self,
 		filled: &[Vec<usize>],
 		cache: &mut HashMap<u32, LayerCache>,
-	) -> Vec<([Pos2; 3], Color32)> {
+	) -> (Vec<([Pos2; 3], Color32)>, Vec<(Rect, Range<usize>)>) {
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
 		let curves = self.curves();
@@ -664,6 +669,7 @@ impl Mesh {
 		layers.sort_by_key(|id| Reverse(ranks[id]));
 
 		let mut triangles = Vec::new();
+		let mut spans = Vec::new();
 		for id in layers {
 			let rank = ranks[&id];
 			let above: Vec<[Pos2; 3]> = cutters
@@ -689,13 +695,19 @@ impl Mesh {
 						}
 					}
 				}
-				entry.triangles = Some(built);
+				let bounds = built.iter().fold(Rect::NOTHING, |bounds, (triangle, _)| {
+					bounds.union(Rect::from_points(triangle))
+				});
+				entry.triangles = Some((built, bounds));
 				entry.above = above;
 				entry.colors = colors;
 			}
-			triangles.extend_from_slice(entry.triangles.as_deref().unwrap());
+			let (built, bounds) = entry.triangles.as_ref().unwrap();
+			let start = triangles.len();
+			triangles.extend_from_slice(built);
+			spans.push((*bounds, start..triangles.len()));
 		}
-		triangles
+		(triangles, spans)
 	}
 
 	fn regions(&self, filled: &[Vec<usize>]) -> Vec<Region> {

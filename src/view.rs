@@ -1,4 +1,4 @@
-use eframe::egui::{self, PointerButton, Pos2, Vec2};
+use eframe::egui::{self, PointerButton, Pos2, Rect, Vec2};
 
 const ZOOM_SPEED: f32 = 0.002;
 const MIN_SCALE: f32 = 8.0;
@@ -16,6 +16,10 @@ impl View {
 
 	pub fn to_world(&self, pos: Pos2) -> Pos2 {
 		(pos - self.offset) / self.scale
+	}
+
+	pub fn to_world_rect(&self, rect: Rect) -> Rect {
+		Rect::from_min_max(self.to_world(rect.min), self.to_world(rect.max))
 	}
 
 	pub fn update(&mut self, response: &egui::Response, zoom: bool, pan: bool) {

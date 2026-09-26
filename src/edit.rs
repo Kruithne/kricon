@@ -560,8 +560,9 @@ impl EditMode {
 	pub fn draw(
 		&self,
 		mesh: &Mesh,
-		curve_outlines: &[Vec<Pos2>],
+		curve_outlines: &[(Rect, Vec<Pos2>)],
 		view: &View,
+		visible: Rect,
 		painter: &egui::Painter,
 		accent: Color32,
 	) {
@@ -592,6 +593,11 @@ impl EditMode {
 
 			let mut shape = egui::Mesh::default();
 			for &[a, b] in &mesh.edges {
+				let (start, end) = (mesh.vertices[a], mesh.vertices[b]);
+				if !Rect::from_two_pos(start, end).intersects(visible) {
+					continue;
+				}
+
 				let color = color(selected[a] && selected[b]);
 				let color = if curve_layers.contains(&mesh.layer(a)) {
 					color.gamma_multiply(CAGE_OPACITY)
@@ -600,14 +606,17 @@ impl EditMode {
 				};
 				add_edge(
 					&mut shape,
-					view.to_screen(mesh.vertices[a]),
-					view.to_screen(mesh.vertices[b]),
+					view.to_screen(start),
+					view.to_screen(end),
 					color,
 				);
 			}
 			painter.add(shape);
 
-			for outline in curve_outlines {
+			for (_, outline) in curve_outlines
+				.iter()
+				.filter(|(bounds, _)| bounds.intersects(visible))
+			{
 				let points = outline.iter().map(|&pos| view.to_screen(pos)).collect();
 				painter.add(egui::Shape::closed_line(
 					points,
@@ -660,6 +669,10 @@ impl EditMode {
 
 		let mut shape = egui::Mesh::default();
 		for (index, &vertex) in mesh.vertices.iter().enumerate() {
+			if !visible.contains(vertex) {
+				continue;
+			}
+
 			let rect = Rect::from_center_size(view.to_screen(vertex), Vec2::splat(VERTEX_SIZE));
 			shape.add_colored_rect(rect, color(selected[index]));
 		}
