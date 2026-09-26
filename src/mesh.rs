@@ -319,10 +319,11 @@ impl Mesh {
 	}
 
 	fn curve_outlines(&self, faces: &[Vec<usize>]) -> Vec<Vec<Pos2>> {
+		let curves = self.curves();
 		faces
 			.iter()
-			.filter(|face| self.is_curve(face[0]))
-			.map(|face| self.outline(face))
+			.filter(|face| curves.contains(&self.vertex_layers[face[0]]))
+			.map(|face| self.outline(face, &curves))
 			.collect()
 	}
 
@@ -502,7 +503,7 @@ impl Mesh {
 
 	pub fn face_color(&self, vertices: &[usize]) -> Option<Color32> {
 		let face = self.enclosed_faces(vertices).into_iter().next()?;
-		Some(self.color_of(&face))
+		Some(color_in(&self.face_colors(), &face))
 	}
 
 	pub fn set_color(&mut self, vertices: &[usize], color: Color32) {
@@ -540,10 +541,11 @@ impl Mesh {
 
 	pub fn face_at(&self, pos: Pos2) -> Option<Vec<usize>> {
 		let ranks = self.ranks();
+		let curves = self.curves();
 		let key = |face: &Vec<usize>| (ranks[&self.vertex_layers[face[0]]], self.signed_area(face));
 		self.filled_faces()
 			.into_iter()
-			.filter(|face| encloses(&self.outline(face), pos))
+			.filter(|face| encloses(&self.outline(face, &curves), pos))
 			.min_by(|a, b| {
 				let (a, b) = (key(a), key(b));
 				a.0.cmp(&b.0).then(a.1.total_cmp(&b.1))
@@ -606,6 +608,8 @@ impl Mesh {
 	) -> Vec<([Pos2; 3], Color32)> {
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
+		let curves = self.curves();
+		let colors = self.face_colors();
 		let mut grouped: HashMap<u32, Vec<&Vec<usize>>> = HashMap::new();
 		for face in filled {
 			grouped
@@ -617,7 +621,7 @@ impl Mesh {
 
 		for (&id, faces) in &grouped {
 			let entry = cache.entry(id).or_default();
-			let curve = self.is_curve(faces[0][0]);
+			let curve = curves.contains(&id);
 			let points: Vec<Vec<Pos2>> = faces
 				.iter()
 				.map(|face| face.iter().map(|&vertex| self.vertices[vertex]).collect())
@@ -628,7 +632,7 @@ impl Mesh {
 
 			entry.shapes = faces
 				.iter()
-				.map(|face| triangulate(self.outline(face)))
+				.map(|face| triangulate(self.outline(face, &curves)))
 				.collect();
 			entry.curve = curve;
 			entry.faces = points;
@@ -669,7 +673,7 @@ impl Mesh {
 				.collect();
 			let colors: Vec<Color32> = grouped[&id]
 				.iter()
-				.map(|face| self.color_of(&face_key(face)))
+				.map(|face| color_in(&colors, &face_key(face)))
 				.collect();
 
 			let entry = cache.get_mut(&id).unwrap();
@@ -697,15 +701,17 @@ impl Mesh {
 	fn regions(&self, filled: &[Vec<usize>]) -> Vec<Region> {
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
+		let curves = self.curves();
+		let colors = self.face_colors();
 		let mut faces: Vec<&Vec<usize>> = filled.iter().collect();
 		faces.sort_by_key(|face| ranks[&self.vertex_layers[face[0]]]);
 		faces
 			.iter()
 			.map(|face| {
 				let holdout = holdouts.contains(&self.vertex_layers[face[0]]);
-				let fill = (!holdout).then(|| self.color_of(&face_key(face)));
+				let fill = (!holdout).then(|| color_in(&colors, &face_key(face)));
 				Region {
-					outline: self.outline(face),
+					outline: self.outline(face, &curves),
 					fill,
 				}
 			})
@@ -716,6 +722,8 @@ impl Mesh {
 		let selected: HashSet<usize> = vertices.iter().copied().collect();
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
+		let curves = self.curves();
+		let colors = self.face_colors();
 		let rank = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
 		let (cutters, faces): (Vec<_>, Vec<_>) = self
 			.filled_faces()
@@ -727,8 +735,8 @@ impl Mesh {
 			.iter()
 			.filter(|face| face.iter().all(|vertex| selected.contains(vertex)))
 		{
-			let (rank, color) = (rank(face), self.color_of(&face_key(face)));
-			let contour = self.segments(face);
+			let (rank, color) = (rank(face), color_in(&colors, &face_key(face)));
+			let contour = self.segments(face, &curves);
 			if let Some((_, fill)) = fills
 				.iter_mut()
 				.find(|(other, fill)| *other == rank && fill.color == color)
@@ -740,7 +748,7 @@ impl Mesh {
 			let cutters = cutters
 				.iter()
 				.filter(|cutter| ranks[&self.vertex_layers[cutter[0]]] < rank)
-				.map(|cutter| self.segments(cutter))
+				.map(|cutter| self.segments(cutter, &curves))
 				.collect();
 			fills.push((
 				rank,
@@ -756,10 +764,10 @@ impl Mesh {
 		fills.into_iter().map(|(_, fill)| fill).collect()
 	}
 
-	fn segments(&self, face: &[usize]) -> Vec<Segment> {
+	fn segments(&self, face: &[usize], curves: &HashSet<u32>) -> Vec<Segment> {
 		let count = face.len();
 		let point = |index: usize| self.vertices[face[index % count]];
-		let curve = self.is_curve(face[0]);
+		let curve = curves.contains(&self.vertex_layers[face[0]]);
 		(0..count)
 			.map(|index| {
 				if !curve {
@@ -897,15 +905,31 @@ impl Mesh {
 			.collect()
 	}
 
+	fn curves(&self) -> HashSet<u32> {
+		self.layers
+			.iter()
+			.filter(|layer| layer.curve)
+			.map(|layer| layer.id)
+			.collect()
+	}
+
+	fn face_colors(&self) -> HashMap<&[usize], Color32> {
+		self.colors
+			.iter()
+			.rev()
+			.map(|entry| (entry.face.as_slice(), entry.color))
+			.collect()
+	}
+
 	fn new_layer(&self) -> u32 {
 		(1..)
 			.find(|&id| !self.layers.iter().any(|layer| layer.id == id))
 			.unwrap()
 	}
 
-	fn outline(&self, face: &[usize]) -> Vec<Pos2> {
+	fn outline(&self, face: &[usize], curves: &HashSet<u32>) -> Vec<Pos2> {
 		let points: Vec<Pos2> = face.iter().map(|&vertex| self.vertices[vertex]).collect();
-		if self.is_curve(face[0]) {
+		if curves.contains(&self.vertex_layers[face[0]]) {
 			spline(&points)
 		} else {
 			points
@@ -1061,21 +1085,15 @@ impl Mesh {
 			.collect()
 	}
 
-	fn color_of(&self, key: &[usize]) -> Color32 {
-		self.colors
-			.iter()
-			.find(|entry| entry.face == key)
-			.map_or(FACE_COLOR, |entry| entry.color)
-	}
-
 	fn filled_faces(&self) -> Vec<Vec<usize>> {
 		self.filled(self.faces())
 	}
 
 	fn filled(&self, faces: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
+		let holes: HashSet<&[usize]> = self.holes.iter().map(Vec::as_slice).collect();
 		faces
 			.into_iter()
-			.filter(|face| !self.holes.contains(&face_key(face)))
+			.filter(|face| !holes.contains(face_key(face).as_slice()))
 			.collect()
 	}
 
@@ -1191,6 +1209,10 @@ fn split(polygon: &[Pos2], a: Pos2, b: Pos2) -> [Vec<Pos2>; 2] {
 		}
 	}
 	halves
+}
+
+fn color_in(colors: &HashMap<&[usize], Color32>, key: &[usize]) -> Color32 {
+	colors.get(key).copied().unwrap_or(FACE_COLOR)
 }
 
 fn face_key(face: &[usize]) -> Vec<usize> {
