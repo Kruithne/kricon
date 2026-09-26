@@ -14,6 +14,7 @@ use eframe::egui::{
 	emath::Rot2,
 	pos2, vec2,
 };
+use std::collections::HashSet;
 use std::f32::consts::TAU;
 
 const VERTEX_SIZE: f32 = 6.0;
@@ -582,19 +583,29 @@ impl EditMode {
 		let color = |is_selected: bool| if is_selected { SELECTED_COLOR } else { accent };
 
 		if self.show_outlines {
+			let curve_layers: HashSet<u32> = mesh
+				.layers
+				.iter()
+				.filter(|layer| layer.curve)
+				.map(|layer| layer.id)
+				.collect();
+
+			let mut shape = egui::Mesh::default();
 			for &[a, b] in &mesh.edges {
-				let points = [
-					view.to_screen(mesh.vertices[a]),
-					view.to_screen(mesh.vertices[b]),
-				];
 				let color = color(selected[a] && selected[b]);
-				let color = if mesh.is_curve(a) {
+				let color = if curve_layers.contains(&mesh.layer(a)) {
 					color.gamma_multiply(CAGE_OPACITY)
 				} else {
 					color
 				};
-				painter.line_segment(points, Stroke::new(EDGE_WIDTH, color));
+				add_edge(
+					&mut shape,
+					view.to_screen(mesh.vertices[a]),
+					view.to_screen(mesh.vertices[b]),
+					color,
+				);
 			}
+			painter.add(shape);
 
 			for outline in curve_outlines {
 				let points = outline.iter().map(|&pos| view.to_screen(pos)).collect();
@@ -647,10 +658,12 @@ impl EditMode {
 			return;
 		}
 
+		let mut shape = egui::Mesh::default();
 		for (index, &vertex) in mesh.vertices.iter().enumerate() {
 			let rect = Rect::from_center_size(view.to_screen(vertex), Vec2::splat(VERTEX_SIZE));
-			painter.rect_filled(rect, 0.0, color(selected[index]));
+			shape.add_colored_rect(rect, color(selected[index]));
 		}
+		painter.add(shape);
 	}
 
 	fn handle_input(
@@ -1438,6 +1451,17 @@ fn axis_line(painter: &egui::Painter, axis: Axis, pos: Pos2) {
 		),
 	};
 	painter.line_segment(points, Stroke::new(AXIS_WIDTH, color));
+}
+
+fn add_edge(shape: &mut egui::Mesh, a: Pos2, b: Pos2, color: Color32) {
+	let offset = (b - a).normalized().rot90() * (EDGE_WIDTH / 2.0);
+	let index = shape.vertices.len() as u32;
+	shape.colored_vertex(a + offset, color);
+	shape.colored_vertex(b + offset, color);
+	shape.colored_vertex(b - offset, color);
+	shape.colored_vertex(a - offset, color);
+	shape.add_triangle(index, index + 1, index + 2);
+	shape.add_triangle(index, index + 2, index + 3);
 }
 
 fn parse_color(text: &str) -> Option<Color32> {
