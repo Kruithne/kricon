@@ -372,8 +372,10 @@ impl eframe::App for App {
 			painter,
 			ACCENT_COLOR,
 		);
-		self.spacing.update(&self.geometry);
-		self.spacing.draw(&self.view, painter);
+		if !self.edit.transforming() {
+			self.spacing.update(&self.geometry);
+			self.spacing.draw(&self.view, painter);
+		}
 
 		self.show_menu_button(ui.ctx());
 		self.edit

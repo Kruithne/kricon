@@ -425,6 +425,10 @@ impl EditMode {
 		matches!(self.operation, Operation::MainMenu { .. })
 	}
 
+	pub fn transforming(&self) -> bool {
+		matches!(self.operation, Operation::Transform(_))
+	}
+
 	pub fn captures_scroll(&self) -> bool {
 		matches!(
 			self.operation,
