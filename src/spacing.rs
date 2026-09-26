@@ -1,5 +1,5 @@
 use crate::geometry::{cross, encloses, turn};
-use crate::mesh::{Mesh, Region};
+use crate::mesh::{Geometry, Region};
 use crate::view::View;
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2, vec2};
 use std::collections::HashMap;
@@ -15,26 +15,25 @@ const NUDGE: f32 = 1e-3;
 #[derive(Default)]
 pub struct Spacing {
 	pub distance: f32,
-	regions: Vec<Region>,
+	revision: u64,
 	measured: f32,
 	arrows: Vec<[Pos2; 2]>,
 }
 
 impl Spacing {
-	pub fn update(&mut self, mesh: &Mesh) {
+	pub fn update(&mut self, geometry: &Geometry) {
 		if self.distance <= 0.0 {
 			self.arrows.clear();
-			self.regions.clear();
+			self.measured = 0.0;
 			return;
 		}
 
-		let regions = mesh.regions();
-		if regions == self.regions && self.distance == self.measured {
+		if geometry.revision == self.revision && self.distance == self.measured {
 			return;
 		}
 
-		self.arrows = measure(&boundary(&regions), self.distance);
-		self.regions = regions;
+		self.arrows = measure(&boundary(&geometry.regions), self.distance);
+		self.revision = geometry.revision;
 		self.measured = self.distance;
 	}
 

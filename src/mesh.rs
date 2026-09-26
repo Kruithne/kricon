@@ -33,6 +33,45 @@ pub struct Region {
 	pub fill: Option<Color32>,
 }
 
+#[derive(Default)]
+pub struct Geometry {
+	pub triangles: Vec<([Pos2; 3], Color32)>,
+	pub curve_outlines: Vec<Vec<Pos2>>,
+	pub regions: Vec<Region>,
+	pub revision: u64,
+	source: Mesh,
+}
+
+impl Geometry {
+	pub fn update(&mut self, mesh: &Mesh) {
+		let source = &self.source;
+		if source.vertices == mesh.vertices
+			&& source.edges == mesh.edges
+			&& source.layers == mesh.layers
+			&& source.vertex_layers == mesh.vertex_layers
+			&& source.holes == mesh.holes
+			&& source.colors == mesh.colors
+		{
+			return;
+		}
+
+		let faces = mesh.faces();
+		self.curve_outlines = mesh.curve_outlines(&faces);
+		let filled = mesh.filled(faces);
+		self.triangles = mesh.triangles(&filled);
+		self.regions = mesh.regions(&filled);
+		self.revision += 1;
+
+		let source = &mut self.source;
+		source.vertices.clone_from(&mesh.vertices);
+		source.edges.clone_from(&mesh.edges);
+		source.layers.clone_from(&mesh.layers);
+		source.vertex_layers.clone_from(&mesh.vertex_layers);
+		source.holes.clone_from(&mesh.holes);
+		source.colors.clone_from(&mesh.colors);
+	}
+}
+
 #[derive(Clone, Default)]
 pub struct Mesh {
 	pub vertices: Vec<Pos2>,
@@ -268,8 +307,8 @@ impl Mesh {
 		}
 	}
 
-	pub fn curve_outlines(&self) -> Vec<Vec<Pos2>> {
-		self.faces()
+	fn curve_outlines(&self, faces: &[Vec<usize>]) -> Vec<Vec<Pos2>> {
+		faces
 			.iter()
 			.filter(|face| self.is_curve(face[0]))
 			.map(|face| self.outline(face))
@@ -549,13 +588,12 @@ impl Mesh {
 		self.sync_layers(false);
 	}
 
-	pub fn triangles(&self) -> Vec<([Pos2; 3], Color32)> {
+	fn triangles(&self, filled: &[Vec<usize>]) -> Vec<([Pos2; 3], Color32)> {
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
 		let rank = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
-		let (cutters, mut faces): (Vec<_>, Vec<_>) = self
-			.filled_faces()
-			.into_iter()
+		let (cutters, mut faces): (Vec<_>, Vec<_>) = filled
+			.iter()
 			.partition(|face| holdouts.contains(&self.vertex_layers[face[0]]));
 		faces.sort_by_key(|face| Reverse(rank(face)));
 
@@ -570,14 +608,14 @@ impl Mesh {
 
 		let mut triangles = Vec::new();
 		for face in faces {
-			let color = self.color_of(&face_key(&face));
+			let color = self.color_of(&face_key(face));
 			let above: Vec<&[Pos2; 3]> = cutters
 				.iter()
-				.filter(|(cutter, _)| *cutter < rank(&face))
+				.filter(|(cutter, _)| *cutter < rank(face))
 				.map(|(_, triangle)| triangle)
 				.collect();
 
-			for triangle in triangulate(self.outline(&face)) {
+			for triangle in triangulate(self.outline(face)) {
 				for piece in subtract(triangle.to_vec(), &above) {
 					for index in 1..piece.len() - 1 {
 						triangles.push(([piece[0], piece[index], piece[index + 1]], color));
@@ -588,10 +626,10 @@ impl Mesh {
 		triangles
 	}
 
-	pub fn regions(&self) -> Vec<Region> {
+	fn regions(&self, filled: &[Vec<usize>]) -> Vec<Region> {
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
-		let mut faces = self.filled_faces();
+		let mut faces: Vec<&Vec<usize>> = filled.iter().collect();
 		faces.sort_by_key(|face| ranks[&self.vertex_layers[face[0]]]);
 		faces
 			.iter()
@@ -963,7 +1001,11 @@ impl Mesh {
 	}
 
 	fn filled_faces(&self) -> Vec<Vec<usize>> {
-		self.faces()
+		self.filled(self.faces())
+	}
+
+	fn filled(&self, faces: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
+		faces
 			.into_iter()
 			.filter(|face| !self.holes.contains(&face_key(face)))
 			.collect()

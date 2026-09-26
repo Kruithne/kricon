@@ -556,7 +556,14 @@ impl EditMode {
 		}
 	}
 
-	pub fn draw(&self, mesh: &Mesh, view: &View, painter: &egui::Painter, accent: Color32) {
+	pub fn draw(
+		&self,
+		mesh: &Mesh,
+		curve_outlines: &[Vec<Pos2>],
+		view: &View,
+		painter: &egui::Painter,
+		accent: Color32,
+	) {
 		let mut selected = vec![false; mesh.vertices.len()];
 		for &index in &self.selection.vertices {
 			selected[index] = true;
@@ -589,8 +596,8 @@ impl EditMode {
 				painter.line_segment(points, Stroke::new(EDGE_WIDTH, color));
 			}
 
-			for outline in mesh.curve_outlines() {
-				let points = outline.into_iter().map(|pos| view.to_screen(pos)).collect();
+			for outline in curve_outlines {
+				let points = outline.iter().map(|&pos| view.to_screen(pos)).collect();
 				painter.add(egui::Shape::closed_line(
 					points,
 					Stroke::new(EDGE_WIDTH, accent),

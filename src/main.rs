@@ -22,7 +22,7 @@ use eframe::egui;
 use icon::Icon;
 use images::{Image, Loader};
 use layers::Layers;
-use mesh::Mesh;
+use mesh::{Geometry, Mesh};
 use settings::Settings;
 use spacing::Spacing;
 use std::io;
@@ -43,6 +43,7 @@ const BUTTON_ICON_SIZE: f32 = 20.0;
 struct App {
 	view: View,
 	mesh: Mesh,
+	geometry: Geometry,
 	edit: EditMode,
 	layers: Layers,
 	face_opacity: f32,
@@ -77,7 +78,7 @@ impl App {
 
 	fn draw_faces(&self, painter: &egui::Painter) {
 		let mut shape = egui::Mesh::default();
-		for (triangle, color) in self.mesh.triangles() {
+		for &(triangle, color) in &self.geometry.triangles {
 			let color = color.gamma_multiply(self.face_opacity);
 			let index = shape.vertices.len() as u32;
 			for pos in triangle {
@@ -343,6 +344,8 @@ impl eframe::App for App {
 		self.handle_files(ui.ctx(), frame);
 		self.load_files(ui.ctx(), rect);
 
+		self.geometry.update(&self.mesh);
+
 		let painter = ui.painter();
 		painter.rect_filled(rect, 0.0, BACKGROUND_COLOR);
 		self.draw_grid(painter, rect);
@@ -352,9 +355,14 @@ impl eframe::App for App {
 			}
 		}
 		self.draw_faces(painter);
-		self.edit
-			.draw(&self.mesh, &self.view, painter, ACCENT_COLOR);
-		self.spacing.update(&self.mesh);
+		self.edit.draw(
+			&self.mesh,
+			&self.geometry.curve_outlines,
+			&self.view,
+			painter,
+			ACCENT_COLOR,
+		);
+		self.spacing.update(&self.geometry);
 		self.spacing.draw(&self.view, painter);
 
 		self.show_menu_button(ui.ctx());
@@ -463,6 +471,7 @@ fn main() -> eframe::Result {
 					scale: GRID_SPACING,
 				},
 				mesh: Mesh::default(),
+				geometry: Geometry::default(),
 				edit,
 				layers: Layers::default(),
 				face_opacity: settings.face_opacity.clamp(0.0, 1.0),
