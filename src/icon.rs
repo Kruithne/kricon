@@ -1,8 +1,12 @@
 use crate::svg::{self, Svg};
 use eframe::egui;
 
-pub const BORING: &str = include_str!("../res/icons/ico_boring.svg");
+pub const EDIT: &str = include_str!("../res/icons/ico_edit.svg");
+pub const FRAME: &str = include_str!("../res/icons/ico_frame.svg");
+pub const IMAGE: &str = include_str!("../res/icons/ico_image.svg");
+pub const LAYERS: &str = include_str!("../res/icons/ico_layers.svg");
 pub const MENU: &str = include_str!("../res/icons/ico_menu.svg");
+pub const TRASH: &str = include_str!("../res/icons/ico_trash.svg");
 
 pub struct Icon {
 	svg: Svg,

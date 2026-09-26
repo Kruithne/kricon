@@ -1,4 +1,3 @@
-use crate::icon::Icon;
 use crate::panel::{self, Header};
 use eframe::egui;
 
@@ -15,7 +14,6 @@ pub struct Menu<T> {
 struct Item<T> {
 	entry: Entry<T>,
 	label: &'static str,
-	icon: Icon,
 }
 
 enum Entry<T> {
@@ -24,7 +22,7 @@ enum Entry<T> {
 }
 
 impl<T: Copy> Menu<T> {
-	pub fn new(title: &'static str, icon: &str) -> Self {
+	pub fn new(title: &'static str, icon: Option<&str>) -> Self {
 		Self {
 			id: egui::Id::new("menu").with(title),
 			header: Header::new(title, icon),
@@ -33,15 +31,15 @@ impl<T: Copy> Menu<T> {
 		}
 	}
 
-	pub fn items(mut self, items: &[(T, &'static str, &'static str)]) -> Self {
-		for &(action, label, icon) in items {
-			self.push(Entry::Action(action), label, icon);
+	pub fn items(mut self, items: &[(T, &'static str)]) -> Self {
+		for &(action, label) in items {
+			self.push(Entry::Action(action), label);
 		}
 		self
 	}
 
-	pub fn submenu(mut self, label: &'static str, icon: &str, menu: Menu<T>) -> Self {
-		self.push(Entry::Submenu(menu), label, icon);
+	pub fn submenu(mut self, label: &'static str, menu: Menu<T>) -> Self {
+		self.push(Entry::Submenu(menu), label);
 		self
 	}
 
@@ -104,9 +102,7 @@ impl<T: Copy> Menu<T> {
 							Entry::Action(_) => {}
 						}
 
-						let icon_rect = panel::icon_rect(rect);
-						panel::paint_icon(ui, &mut item.icon, icon_rect, color);
-						panel::paint_label(ui, icon_rect, item.label, color);
+						panel::paint_label(ui, panel::lead_rect(rect), item.label, color);
 					}
 				});
 			});
@@ -120,12 +116,8 @@ impl<T: Copy> Menu<T> {
 		chosen
 	}
 
-	fn push(&mut self, entry: Entry<T>, label: &'static str, icon: &str) {
-		self.items.push(Item {
-			entry,
-			label,
-			icon: Icon::new(icon),
-		});
+	fn push(&mut self, entry: Entry<T>, label: &'static str) {
+		self.items.push(Item { entry, label });
 	}
 }
 

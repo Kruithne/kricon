@@ -27,23 +27,29 @@ pub fn bordered_frame(accent: egui::Color32) -> egui::Frame {
 
 pub struct Header {
 	title: &'static str,
-	icon: Icon,
+	icon: Option<Icon>,
 }
 
 impl Header {
-	pub fn new(title: &'static str, icon: &str) -> Self {
+	pub fn new(title: &'static str, icon: Option<&str>) -> Self {
 		Self {
 			title,
-			icon: Icon::new(icon),
+			icon: icon.map(Icon::new),
 		}
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, width: f32, accent: egui::Color32) {
 		let (header, _) =
 			ui.allocate_exact_size(egui::vec2(width, ITEM_HEIGHT), egui::Sense::hover());
-		let icon_rect = icon_rect(header);
-		paint_icon(ui, &mut self.icon, icon_rect, CONTENT_ACTIVE_COLOR);
-		paint_label(ui, icon_rect, self.title, CONTENT_ACTIVE_COLOR);
+		let lead = match &mut self.icon {
+			Some(icon) => {
+				let icon_rect = icon_rect(header);
+				paint_icon(ui, icon, icon_rect, CONTENT_ACTIVE_COLOR);
+				icon_rect
+			}
+			None => lead_rect(header),
+		};
+		paint_label(ui, lead, self.title, CONTENT_ACTIVE_COLOR);
 
 		ui.painter().hline(
 			header.x_range().expand(FRAME_MARGIN),
@@ -60,6 +66,10 @@ pub fn icon_rect(row: egui::Rect) -> egui::Rect {
 	)
 }
 
+pub fn lead_rect(row: egui::Rect) -> egui::Rect {
+	egui::Rect::from_min_size(row.left_center(), egui::Vec2::ZERO)
+}
+
 pub fn paint_icon(ui: &egui::Ui, icon: &mut Icon, rect: egui::Rect, tint: egui::Color32) {
 	let pixels = (rect.width() * ui.ctx().pixels_per_point()).round() as usize;
 	let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
@@ -73,7 +83,7 @@ pub fn row_width(ui: &egui::Ui, text: &str) -> f32 {
 		egui::FontId::proportional(TEXT_SIZE),
 		CONTENT_COLOR,
 	);
-	3.0 * PADDING + ICON_SIZE + galley.size().x
+	2.0 * PADDING + galley.size().x
 }
 
 pub fn paint_label(ui: &egui::Ui, after: egui::Rect, text: &str, color: egui::Color32) {

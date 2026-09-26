@@ -42,73 +42,53 @@ const BRUSH_STEP: f32 = 4.0;
 const MIN_BRUSH_RADIUS: f32 = 4.0;
 const MAX_BRUSH_RADIUS: f32 = 256.0;
 const MAGNET_RADIUS: f32 = 64.0;
-const CREATE_MENU: [(Action, &str, &str); 4] = [
-	(Action::AddVertex, "Add Vertex (V)", icon::BORING),
-	(Action::AddRect, "Add Rect", icon::BORING),
-	(Action::AddCircle, "Add Circle", icon::BORING),
-	(Action::AddCurve, "Add Curve", icon::BORING),
+const CREATE_MENU: [(Action, &str); 4] = [
+	(Action::AddVertex, "Add Vertex (V)"),
+	(Action::AddRect, "Add Rect"),
+	(Action::AddCircle, "Add Circle"),
+	(Action::AddCurve, "Add Curve"),
 ];
-const MERGE_MENU: [(Action, &str, &str); 4] = [
-	(Action::Merge(MergeTarget::Last), "At Last", icon::BORING),
-	(
-		Action::Merge(MergeTarget::Center),
-		"At Center",
-		icon::BORING,
-	),
-	(Action::Merge(MergeTarget::First), "At First", icon::BORING),
-	(
-		Action::Merge(MergeTarget::Cursor),
-		"At Cursor",
-		icon::BORING,
-	),
+const MERGE_MENU: [(Action, &str); 4] = [
+	(Action::Merge(MergeTarget::Last), "At Last"),
+	(Action::Merge(MergeTarget::Center), "At Center"),
+	(Action::Merge(MergeTarget::First), "At First"),
+	(Action::Merge(MergeTarget::Cursor), "At Cursor"),
 ];
-const FILE_MENU: [(Action, &str, &str); 3] = [
-	(Action::File(FileAction::New), "New Workspace", icon::BORING),
-	(
-		Action::File(FileAction::Load),
-		"Load Workspace",
-		icon::BORING,
-	),
-	(
-		Action::File(FileAction::Save),
-		"Save Workspace (Ctrl+S)",
-		icon::BORING,
-	),
+const FILE_MENU: [(Action, &str); 3] = [
+	(Action::File(FileAction::New), "New Workspace"),
+	(Action::File(FileAction::Load), "Load Workspace"),
+	(Action::File(FileAction::Save), "Save Workspace (Ctrl+S)"),
 ];
-const MAIN_MENU: [(Action, &str, &str); 29] = [
-	(Action::Translate, "Translate (G)", icon::BORING),
-	(Action::Rotate, "Rotate (R)", icon::BORING),
-	(Action::Scale, "Scale (S)", icon::BORING),
-	(Action::Extrude, "Extrude (E)", icon::BORING),
-	(Action::Duplicate, "Duplicate (Shift+D)", icon::BORING),
-	(Action::Inset, "Inset (I)", icon::BORING),
-	(Action::Connect, "Connect (F)", icon::BORING),
-	(Action::Subdivide, "Subdivide (Shift+S)", icon::BORING),
-	(
-		Action::SubdivideCurve,
-		"Subdivide Curve (Alt+S)",
-		icon::BORING,
-	),
-	(Action::Decimate, "Decimate (D)", icon::BORING),
-	(Action::Space, "Space Evenly (N)", icon::BORING),
-	(Action::Dissolve, "Dissolve (X)", icon::BORING),
-	(Action::Delete, "Delete (Del)", icon::BORING),
-	(Action::SelectAll, "Select All (A)", icon::BORING),
-	(Action::SelectLinked, "Select Linked (L)", icon::BORING),
-	(Action::SelectSameEdge, "Select Same Edge (T)", icon::BORING),
-	(Action::Brush, "Brush Select (C)", icon::BORING),
-	(Action::BoxSelect, "Box Select (B)", icon::BORING),
-	(Action::Magnet, "Toggle Magnet (K)", icon::BORING),
-	(Action::ToggleHole, "Toggle Hole (P)", icon::BORING),
-	(Action::ToggleHoldout, "Toggle Holdout (H)", icon::BORING),
-	(Action::Group, "Group (Ctrl+G)", icon::BORING),
-	(Action::Ungroup, "Ungroup (Ctrl+Shift+G)", icon::BORING),
-	(Action::Palette, "Set Colour (Y)", icon::BORING),
-	(Action::CopyColor, "Copy Colour (Ctrl+Y)", icon::BORING),
-	(Action::PasteColor, "Paste Colour (Shift+Y)", icon::BORING),
-	(Action::CopySvg, "Copy SVG Code (Ctrl+C)", icon::BORING),
-	(Action::Undo, "Undo (Ctrl+Z)", icon::BORING),
-	(Action::Redo, "Redo (Ctrl+R)", icon::BORING),
+const MAIN_MENU: [(Action, &str); 29] = [
+	(Action::Translate, "Translate (G)"),
+	(Action::Rotate, "Rotate (R)"),
+	(Action::Scale, "Scale (S)"),
+	(Action::Extrude, "Extrude (E)"),
+	(Action::Duplicate, "Duplicate (Shift+D)"),
+	(Action::Inset, "Inset (I)"),
+	(Action::Connect, "Connect (F)"),
+	(Action::Subdivide, "Subdivide (Shift+S)"),
+	(Action::SubdivideCurve, "Subdivide Curve (Alt+S)"),
+	(Action::Decimate, "Decimate (D)"),
+	(Action::Space, "Space Evenly (N)"),
+	(Action::Dissolve, "Dissolve (X)"),
+	(Action::Delete, "Delete (Del)"),
+	(Action::SelectAll, "Select All (A)"),
+	(Action::SelectLinked, "Select Linked (L)"),
+	(Action::SelectSameEdge, "Select Same Edge (T)"),
+	(Action::Brush, "Brush Select (C)"),
+	(Action::BoxSelect, "Box Select (B)"),
+	(Action::Magnet, "Toggle Magnet (K)"),
+	(Action::ToggleHole, "Toggle Hole (P)"),
+	(Action::ToggleHoldout, "Toggle Holdout (H)"),
+	(Action::Group, "Group (Ctrl+G)"),
+	(Action::Ungroup, "Ungroup (Ctrl+Shift+G)"),
+	(Action::Palette, "Set Colour (Y)"),
+	(Action::CopyColor, "Copy Colour (Ctrl+Y)"),
+	(Action::PasteColor, "Paste Colour (Shift+Y)"),
+	(Action::CopySvg, "Copy SVG Code (Ctrl+C)"),
+	(Action::Undo, "Undo (Ctrl+Z)"),
+	(Action::Redo, "Redo (Ctrl+R)"),
 ];
 
 #[derive(Clone, Copy)]
@@ -345,20 +325,12 @@ impl Default for EditMode {
 			show_outlines: true,
 			selection: Selection::default(),
 			operation: Operation::Idle,
-			create_menu: Menu::new("Create", icon::BORING).items(&CREATE_MENU),
-			merge_menu: Menu::new("Merge", icon::BORING).items(&MERGE_MENU),
-			main_menu: Menu::new("Menu (Q)", icon::MENU)
+			create_menu: Menu::new("Create", None).items(&CREATE_MENU),
+			merge_menu: Menu::new("Merge", None).items(&MERGE_MENU),
+			main_menu: Menu::new("Menu (Q)", Some(icon::MENU))
 				.items(&FILE_MENU)
-				.submenu(
-					"Create (W)",
-					icon::BORING,
-					Menu::new("Create", icon::BORING).items(&CREATE_MENU),
-				)
-				.submenu(
-					"Merge (M)",
-					icon::BORING,
-					Menu::new("Merge", icon::BORING).items(&MERGE_MENU),
-				)
+				.submenu("Create (W)", Menu::new("Create", None).items(&CREATE_MENU))
+				.submenu("Merge (M)", Menu::new("Merge", None).items(&MERGE_MENU))
 				.items(&MAIN_MENU),
 			brush_radius: BRUSH_RADIUS,
 			magnet: false,

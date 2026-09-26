@@ -42,9 +42,9 @@ pub struct Layers {
 impl Default for Layers {
 	fn default() -> Self {
 		Self {
-			header: Header::new("Layers", icon::BORING),
-			edit_icon: Icon::new(icon::BORING),
-			delete_icon: Icon::new(icon::BORING),
+			header: Header::new("Layers", Some(icon::LAYERS)),
+			edit_icon: Icon::new(icon::EDIT),
+			delete_icon: Icon::new(icon::TRASH),
 			editing: None,
 			expanded: HashSet::new(),
 		}
