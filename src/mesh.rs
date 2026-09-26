@@ -40,6 +40,17 @@ pub struct Geometry {
 	pub regions: Vec<Region>,
 	pub revision: u64,
 	source: Mesh,
+	layers: HashMap<u32, LayerCache>,
+}
+
+#[derive(Default)]
+struct LayerCache {
+	curve: bool,
+	faces: Vec<Vec<Pos2>>,
+	shapes: Vec<Vec<[Pos2; 3]>>,
+	colors: Vec<Color32>,
+	above: Vec<[Pos2; 3]>,
+	triangles: Option<Vec<([Pos2; 3], Color32)>>,
 }
 
 impl Geometry {
@@ -58,7 +69,7 @@ impl Geometry {
 		let faces = mesh.faces();
 		self.curve_outlines = mesh.curve_outlines(&faces);
 		let filled = mesh.filled(faces);
-		self.triangles = mesh.triangles(&filled);
+		self.triangles = mesh.triangles(&filled, &mut self.layers);
 		self.regions = mesh.regions(&filled);
 		self.revision += 1;
 
@@ -588,40 +599,97 @@ impl Mesh {
 		self.sync_layers(false);
 	}
 
-	fn triangles(&self, filled: &[Vec<usize>]) -> Vec<([Pos2; 3], Color32)> {
+	fn triangles(
+		&self,
+		filled: &[Vec<usize>],
+		cache: &mut HashMap<u32, LayerCache>,
+	) -> Vec<([Pos2; 3], Color32)> {
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
-		let rank = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
-		let (cutters, mut faces): (Vec<_>, Vec<_>) = filled
-			.iter()
-			.partition(|face| holdouts.contains(&self.vertex_layers[face[0]]));
-		faces.sort_by_key(|face| Reverse(rank(face)));
+		let mut grouped: HashMap<u32, Vec<&Vec<usize>>> = HashMap::new();
+		for face in filled {
+			grouped
+				.entry(self.vertex_layers[face[0]])
+				.or_default()
+				.push(face);
+		}
+		cache.retain(|id, _| grouped.contains_key(id));
 
-		let cutters: Vec<(usize, [Pos2; 3])> = cutters
-			.iter()
-			.flat_map(|face| {
-				triangulate(self.outline(face))
-					.into_iter()
-					.map(move |triangle| (rank(face), triangle))
-			})
+		for (&id, faces) in &grouped {
+			let entry = cache.entry(id).or_default();
+			let curve = self.is_curve(faces[0][0]);
+			let points: Vec<Vec<Pos2>> = faces
+				.iter()
+				.map(|face| face.iter().map(|&vertex| self.vertices[vertex]).collect())
+				.collect();
+			if entry.curve == curve && entry.faces == points {
+				continue;
+			}
+
+			entry.shapes = faces
+				.iter()
+				.map(|face| triangulate(self.outline(face)))
+				.collect();
+			entry.curve = curve;
+			entry.faces = points;
+			entry.triangles = None;
+		}
+
+		let mut counts: HashMap<u32, usize> = HashMap::new();
+		let mut cutters: Vec<(usize, [Pos2; 3])> = Vec::new();
+		for face in filled {
+			let id = self.vertex_layers[face[0]];
+			let count = counts.entry(id).or_default();
+			let index = *count;
+			*count += 1;
+			if holdouts.contains(&id) {
+				let rank = ranks[&id];
+				cutters.extend(
+					cache[&id].shapes[index]
+						.iter()
+						.map(|&triangle| (rank, triangle)),
+				);
+			}
+		}
+
+		let mut layers: Vec<u32> = grouped
+			.keys()
+			.copied()
+			.filter(|id| !holdouts.contains(id))
 			.collect();
+		layers.sort_by_key(|id| Reverse(ranks[id]));
 
 		let mut triangles = Vec::new();
-		for face in faces {
-			let color = self.color_of(&face_key(face));
-			let above: Vec<&[Pos2; 3]> = cutters
+		for id in layers {
+			let rank = ranks[&id];
+			let above: Vec<[Pos2; 3]> = cutters
 				.iter()
-				.filter(|(cutter, _)| *cutter < rank(face))
-				.map(|(_, triangle)| triangle)
+				.filter(|(cutter, _)| *cutter < rank)
+				.map(|&(_, triangle)| triangle)
+				.collect();
+			let colors: Vec<Color32> = grouped[&id]
+				.iter()
+				.map(|face| self.color_of(&face_key(face)))
 				.collect();
 
-			for triangle in triangulate(self.outline(face)) {
-				for piece in subtract(triangle.to_vec(), &above) {
-					for index in 1..piece.len() - 1 {
-						triangles.push(([piece[0], piece[index], piece[index + 1]], color));
+			let entry = cache.get_mut(&id).unwrap();
+			if entry.triangles.is_none() || entry.above != above || entry.colors != colors {
+				let cutters: Vec<&[Pos2; 3]> = above.iter().collect();
+				let mut built = Vec::new();
+				for (shape, &color) in entry.shapes.iter().zip(&colors) {
+					for &triangle in shape {
+						for piece in subtract(triangle.to_vec(), &cutters) {
+							for index in 1..piece.len() - 1 {
+								built.push(([piece[0], piece[index], piece[index + 1]], color));
+							}
+						}
 					}
 				}
+				entry.triangles = Some(built);
+				entry.above = above;
+				entry.colors = colors;
 			}
+			triangles.extend_from_slice(entry.triangles.as_deref().unwrap());
 		}
 		triangles
 	}
