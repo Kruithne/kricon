@@ -684,11 +684,23 @@ impl Mesh {
 
 			let entry = cache.get_mut(&id).unwrap();
 			if entry.triangles.is_none() || entry.above != above || entry.colors != colors {
-				let cutters: Vec<&[Pos2; 3]> = above.iter().collect();
+				let cutters: Vec<(Rect, &[Pos2; 3])> = above
+					.iter()
+					.map(|cutter| (Rect::from_points(cutter), cutter))
+					.collect();
+				let mut nearby = Vec::new();
 				let mut built = Vec::new();
 				for (shape, &color) in entry.shapes.iter().zip(&colors) {
 					for &triangle in shape {
-						for piece in subtract(triangle.to_vec(), &cutters) {
+						let bounds = Rect::from_points(&triangle);
+						nearby.clear();
+						nearby.extend(
+							cutters
+								.iter()
+								.filter(|(cutter, _)| cutter.intersects(bounds))
+								.map(|&(_, cutter)| cutter),
+						);
+						for piece in subtract(triangle.to_vec(), &nearby) {
 							for index in 1..piece.len() - 1 {
 								built.push(([piece[0], piece[index], piece[index + 1]], color));
 							}
