@@ -5,7 +5,7 @@ use crate::panel::{self, Header};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 
-const PANEL_WIDTH: f32 = 200.0;
+const PANEL_WIDTH: f32 = 240.0;
 const INDICATOR_SIZE: f32 = 8.0;
 const INDICATOR_GAP: f32 = 2.0;
 const DROP_COLOR: egui::Color32 = egui::Color32::WHITE;
@@ -29,12 +29,14 @@ struct Row {
 	selected: usize,
 	total: usize,
 	open: Option<bool>,
+	mirror: bool,
 }
 
 pub struct Layers {
 	header: Header,
 	edit_icon: Icon,
 	delete_icon: Icon,
+	mirror_icon: Icon,
 	editing: Option<(Item, String)>,
 	expanded: HashSet<u32>,
 }
@@ -45,6 +47,7 @@ impl Default for Layers {
 			header: Header::new("Layers", Some(icon::LAYERS)),
 			edit_icon: Icon::new(icon::EDIT),
 			delete_icon: Icon::new(icon::TRASH),
+			mirror_icon: Icon::new(icon::BORING),
 			editing: None,
 			expanded: HashSet::new(),
 		}
@@ -65,6 +68,7 @@ impl Layers {
 		let mut renamed = None;
 		let mut deleted = None;
 		let mut toggled = None;
+		let mut mirrored = None;
 
 		egui::Window::new("Layers")
 			.frame(panel::bordered_frame(accent))
@@ -177,10 +181,28 @@ impl Layers {
 						self.editing = Some((item, row.name.clone()));
 					}
 
+					let mut text_end = edit_rect.left();
+					if let Item::Group(group) = item {
+						let mirror_rect =
+							edit_rect.translate(egui::vec2(-panel::ICON_SIZE - ICON_GAP, 0.0));
+						let active = row.mirror || edit.mirror_menu_group() == Some(group);
+						let tint = if active {
+							panel::CONTENT_ACTIVE_COLOR
+						} else {
+							color
+						};
+						if icon_button(ui, &mut self.mirror_icon, mirror_rect, tint, "Mirror", item)
+							.clicked()
+						{
+							mirrored = Some(group);
+						}
+						text_end = mirror_rect.left();
+					}
+
 					match &mut self.editing {
 						Some((editing, text)) if *editing == item => {
 							let text_rect = egui::Rect::from_x_y_ranges(
-								lead.right() + panel::PADDING..=edit_rect.left() - ICON_GAP,
+								lead.right() + panel::PADDING..=text_end - ICON_GAP,
 								rect.y_range(),
 							);
 							let response = ui.put(
@@ -248,6 +270,12 @@ impl Layers {
 				.collect(),
 		};
 
+		if let Some(group) = mirrored
+			&& let Some(pointer) = ctx.pointer_latest_pos()
+		{
+			edit.toggle_mirror_menu(mesh, group, pointer);
+		}
+
 		match moved {
 			Some((Item::Layer(id), target, group)) => edit.move_layer(mesh, id, target, group),
 			Some((Item::Group(group), target, _)) => edit.move_group(mesh, group, target),
@@ -312,6 +340,7 @@ impl Layers {
 					selected: count,
 					total,
 					open: Some(open),
+					mirror: mesh.mirror(group) != [false; 2],
 				});
 			}
 
@@ -340,6 +369,7 @@ impl Layers {
 				selected: selected.get(&id).copied().unwrap_or(0),
 				total: sizes[&id],
 				open: None,
+				mirror: false,
 			});
 		}
 		rows

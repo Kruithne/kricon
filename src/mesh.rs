@@ -17,6 +17,7 @@ const SKEW_TOLERANCE: f32 = 0.1;
 const MIN_PIECE_AREA: f32 = 1e-6;
 const MIN_FIT_AREA: f32 = 1e-6;
 const FIT_TOLERANCE: f32 = 1e-3;
+const MIRROR_WELD: f32 = 0.05;
 
 #[derive(Clone, PartialEq)]
 pub struct Layer {
@@ -31,6 +32,7 @@ pub struct Layer {
 pub struct Group {
 	pub id: u32,
 	pub name: String,
+	pub mirror: [bool; 2],
 }
 
 #[derive(Clone, PartialEq)]
@@ -173,6 +175,7 @@ impl Geometry {
 			&& source.sharp == mesh.sharp
 			&& source.holes == mesh.holes
 			&& source.colors == mesh.colors
+			&& source.groups == mesh.groups
 		{
 			return;
 		}
@@ -183,9 +186,15 @@ impl Geometry {
 
 		let faces = mesh.faces();
 		self.curve_outlines = mesh.curve_outlines(&faces);
-		let filled = mesh.filled(faces);
-		(self.triangles, self.spans) = mesh.triangles(&filled, &mut self.layers);
-		self.regions = mesh.regions(&filled);
+		let mirrored = mesh.mirrored().map(|(mirrored, _)| mirrored);
+		let target = mirrored.as_ref().unwrap_or(mesh);
+		let faces = match &mirrored {
+			Some(mirrored) => mirrored.faces(),
+			None => faces,
+		};
+		let filled = target.filled(faces);
+		(self.triangles, self.spans) = target.triangles(&filled, &mut self.layers);
+		self.regions = target.regions(&filled);
 		self.revision += 1;
 
 		let source = &mut self.source;
@@ -196,6 +205,7 @@ impl Geometry {
 		source.sharp.clone_from(&mesh.sharp);
 		source.holes.clone_from(&mesh.holes);
 		source.colors.clone_from(&mesh.colors);
+		source.groups.clone_from(&mesh.groups);
 	}
 }
 
@@ -512,6 +522,7 @@ impl Mesh {
 		self.groups.push(Group {
 			id: group,
 			name: String::new(),
+			mirror: [false; 2],
 		});
 
 		let (mut block, rest): (Vec<Layer>, Vec<Layer>) = std::mem::take(&mut self.layers)
@@ -553,6 +564,60 @@ impl Mesh {
 		if let Some(group) = self.groups.iter_mut().find(|group| group.id == id) {
 			group.name = name;
 		}
+	}
+
+	pub fn mirror(&self, id: u32) -> [bool; 2] {
+		self.groups
+			.iter()
+			.find(|group| group.id == id)
+			.map_or([false; 2], |group| group.mirror)
+	}
+
+	pub fn toggle_mirror(&mut self, id: u32, axis: usize) {
+		if let Some(group) = self.groups.iter_mut().find(|group| group.id == id) {
+			group.mirror[axis] = !group.mirror[axis];
+		}
+	}
+
+	fn mirrored(&self) -> Option<(Mesh, Vec<usize>)> {
+		if self.groups.iter().all(|group| group.mirror == [false; 2]) {
+			return None;
+		}
+
+		let mut mesh = self.clone();
+		let mut sources: Vec<usize> = (0..self.vertices.len()).collect();
+		for group in &self.groups {
+			let layers: Vec<u32> = self
+				.layers
+				.iter()
+				.filter(|layer| layer.group == group.id)
+				.map(|layer| layer.id)
+				.collect();
+			let points: Vec<Pos2> = self
+				.layer_vertices(&layers)
+				.map(|vertex| self.vertices[vertex])
+				.collect();
+			let edge = Rect::from_points(&points).max;
+			for axis in (0..2).filter(|&axis| group.mirror[axis]) {
+				let vertices: Vec<usize> = mesh.layer_vertices(&layers).collect();
+				for &vertex in &vertices {
+					let pos = &mut mesh.vertices[vertex][axis];
+					if (edge[axis] - *pos).abs() <= MIRROR_WELD {
+						*pos = edge[axis];
+					}
+				}
+				let copies = mesh.copy_vertices(&vertices);
+				for (&vertex, &copy) in vertices.iter().zip(&copies) {
+					mesh.vertices[copy][axis] = 2.0 * edge[axis] - mesh.vertices[vertex][axis];
+					sources.push(sources[vertex]);
+				}
+			}
+		}
+
+		for group in &mut mesh.groups {
+			group.mirror = [false; 2];
+		}
+		Some((mesh, sources))
 	}
 
 	pub fn prune_groups(&mut self) {
@@ -1091,6 +1156,13 @@ impl Mesh {
 
 	pub fn fills(&self, vertices: &[usize]) -> Vec<Fill> {
 		let selected: HashSet<usize> = vertices.iter().copied().collect();
+		if let Some((mesh, sources)) = self.mirrored() {
+			let vertices: Vec<usize> = (0..sources.len())
+				.filter(|&vertex| selected.contains(&sources[vertex]))
+				.collect();
+			return mesh.fills(&vertices);
+		}
+
 		let ranks = self.ranks();
 		let holdouts = self.holdouts();
 		let curves = self.curves();

@@ -14,6 +14,7 @@ pub struct Menu<T> {
 struct Item<T> {
 	entry: Entry<T>,
 	label: &'static str,
+	active: bool,
 }
 
 enum Entry<T> {
@@ -21,7 +22,7 @@ enum Entry<T> {
 	Submenu(Menu<T>),
 }
 
-impl<T: Copy> Menu<T> {
+impl<T: Copy + PartialEq> Menu<T> {
 	pub fn new(title: &'static str, icon: Option<&str>) -> Self {
 		Self {
 			id: egui::Id::new("menu").with(title),
@@ -41,6 +42,16 @@ impl<T: Copy> Menu<T> {
 	pub fn submenu(mut self, label: &'static str, menu: Menu<T>) -> Self {
 		self.push(Entry::Submenu(menu), label);
 		self
+	}
+
+	pub fn set_active(&mut self, action: T, active: bool) {
+		for item in &mut self.items {
+			if let Entry::Action(other) = item.entry
+				&& other == action
+			{
+				item.active = active;
+			}
+		}
 	}
 
 	pub fn reset(&mut self) {
@@ -78,7 +89,7 @@ impl<T: Copy> Menu<T> {
 						let (rect, response, color) = panel::item(
 							ui,
 							egui::vec2(width, panel::ITEM_HEIGHT),
-							self.open == Some(index),
+							self.open == Some(index) || item.active,
 							egui::Sense::click(),
 						);
 						if response.hovered() {
@@ -117,7 +128,11 @@ impl<T: Copy> Menu<T> {
 	}
 
 	fn push(&mut self, entry: Entry<T>, label: &'static str) {
-		self.items.push(Item { entry, label });
+		self.items.push(Item {
+			entry,
+			label,
+			active: false,
+		});
 	}
 }
 

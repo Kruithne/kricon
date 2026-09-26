@@ -58,6 +58,8 @@ const MERGE_MENU: [(Action, &str); 4] = [
 	(Action::Merge(MergeTarget::First), "At First"),
 	(Action::Merge(MergeTarget::Cursor), "At Cursor"),
 ];
+const MIRROR_MENU: [(Action, &str); 2] =
+	[(Action::Mirror(0), "X Axis"), (Action::Mirror(1), "Y Axis")];
 const FILE_MENU: [(Action, &str); 3] = [
 	(Action::File(FileAction::New), "New Workspace"),
 	(Action::File(FileAction::Load), "Load Workspace"),
@@ -97,14 +99,14 @@ const MAIN_MENU: [(Action, &str); 31] = [
 	(Action::Redo, "Redo (Ctrl+R)"),
 ];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum FileAction {
 	New,
 	Load,
 	Save,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Action {
 	File(FileAction),
 	Undo,
@@ -142,6 +144,7 @@ enum Action {
 	ToggleSharp,
 	Group,
 	Ungroup,
+	Mirror(usize),
 	Palette,
 	CopyColor,
 	PasteColor,
@@ -149,7 +152,7 @@ enum Action {
 	Delete,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum MergeTarget {
 	Last,
 	Center,
@@ -157,7 +160,7 @@ enum MergeTarget {
 	Cursor,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum MenuKind {
 	Create,
 	Merge,
@@ -178,6 +181,10 @@ enum Operation {
 	},
 	MainMenu {
 		anchor: Pos2,
+	},
+	MirrorMenu {
+		anchor: Pos2,
+		group: u32,
 	},
 	Brush,
 	BoxSelect {
@@ -349,6 +356,7 @@ pub struct EditMode {
 	create_menu: Menu<Action>,
 	merge_menu: Menu<Action>,
 	main_menu: Menu<Action>,
+	mirror_menu: Menu<Action>,
 	brush_radius: f32,
 	magnet: bool,
 	magnet_radius: f32,
@@ -373,6 +381,7 @@ impl Default for EditMode {
 				.submenu("Create (W)", Menu::new("Create", None).items(&CREATE_MENU))
 				.submenu("Merge (M)", Menu::new("Merge", None).items(&MERGE_MENU))
 				.items(&MAIN_MENU),
+			mirror_menu: Menu::new("Mirror", Some(icon::BORING)).items(&MIRROR_MENU),
 			brush_radius: BRUSH_RADIUS,
 			magnet: false,
 			magnet_radius: MAGNET_RADIUS,
@@ -480,6 +489,21 @@ impl EditMode {
 		}
 	}
 
+	pub fn toggle_mirror_menu(&mut self, mesh: &mut Mesh, group: u32, anchor: Pos2) {
+		let open = self.mirror_menu_group() == Some(group);
+		self.cancel(mesh);
+		if !open {
+			self.operation = Operation::MirrorMenu { anchor, group };
+		}
+	}
+
+	pub fn mirror_menu_group(&self) -> Option<u32> {
+		match self.operation {
+			Operation::MirrorMenu { group, .. } => Some(group),
+			_ => None,
+		}
+	}
+
 	pub fn menu_open(&self) -> bool {
 		matches!(self.operation, Operation::MainMenu { .. })
 	}
@@ -574,11 +598,22 @@ impl EditMode {
 				kind: MenuKind::Merge,
 			} => (&mut self.merge_menu, view.to_screen(pos), pos),
 			Operation::MainMenu { anchor } => (&mut self.main_menu, anchor, view.to_world(pointer)),
+			Operation::MirrorMenu { anchor, group } => {
+				for (axis, active) in mesh.mirror(group).into_iter().enumerate() {
+					self.mirror_menu.set_active(Action::Mirror(axis), active);
+				}
+				(&mut self.mirror_menu, anchor, view.to_world(pointer))
+			}
 			_ => return,
 		};
 		let Some(action) = menu.show(ctx, anchor, accent) else {
 			return;
 		};
+
+		if let (Action::Mirror(axis), Some(group)) = (action, self.mirror_menu_group()) {
+			self.record(mesh, |_, mesh| mesh.toggle_mirror(group, axis));
+			return;
+		}
 
 		self.operation = Operation::Idle;
 		self.perform(mesh, view, ctx, action, pos);
@@ -945,7 +980,7 @@ impl EditMode {
 					*start = Some(cursor);
 				}
 			}
-			Operation::Menu { .. } | Operation::MainMenu { .. } => {
+			Operation::Menu { .. } | Operation::MainMenu { .. } | Operation::MirrorMenu { .. } => {
 				if key(Key::Escape) || (hovered && input.pointer.any_pressed()) {
 					self.operation = Operation::Idle;
 				}
@@ -1114,6 +1149,7 @@ impl EditMode {
 			Action::Ungroup => {
 				self.record(mesh, |edit, mesh| mesh.ungroup(&edit.selection.vertices))
 			}
+			Action::Mirror(_) => {}
 			Action::Palette => {
 				if let Some(color) = mesh.face_color(&self.selection.vertices) {
 					self.operation = Operation::Palette { pos: cursor, color };

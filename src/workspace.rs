@@ -20,6 +20,7 @@ const LAYERS: &[u8; 4] = b"LAYR";
 const VERTEX_LAYERS: &[u8; 4] = b"VLAY";
 const SHARP: &[u8; 4] = b"SHRP";
 const GROUPS: &[u8; 4] = b"GRUP";
+const MIRRORS: &[u8; 4] = b"MIRR";
 const HOLES: &[u8; 4] = b"HOLE";
 const COLORS: &[u8; 4] = b"COLR";
 const IMAGES: &[u8; 4] = b"IMAG";
@@ -233,6 +234,13 @@ fn encode(mesh: &Mesh, meta: &Meta) -> Vec<u8> {
 			members.iter().for_each(|&id| writer.u32(id));
 		}
 	});
+	writer.section(MIRRORS, |writer| {
+		writer.u32(mesh.groups.len() as u32);
+		for group in &mesh.groups {
+			writer.u32(group.id);
+			writer.u8(group.mirror[0] as u8 | (group.mirror[1] as u8) << 1);
+		}
+	});
 	writer.section(HOLES, |writer| {
 		writer.u32(mesh.holes.len() as u32);
 		mesh.holes.iter().for_each(|hole| writer.indices(hole));
@@ -268,6 +276,7 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 	let mut sources = Vec::new();
 	let mut members = Vec::new();
 	let mut sharp = Vec::new();
+	let mut mirrors = Vec::new();
 	while !reader.bytes.is_empty() {
 		let tag = reader.array::<4>()?;
 		let len = usize::try_from(reader.u64()?).ok()?;
@@ -309,10 +318,18 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 					let len = reader.u32()? as usize;
 					let name = String::from_utf8(reader.take(len)?.to_vec()).ok()?;
 					let layers = reader.list(4, Reader::u32)?;
-					Some((Group { id, name }, layers))
+					Some((
+						Group {
+							id,
+							name,
+							mirror: [false; 2],
+						},
+						layers,
+					))
 				})?;
 				(mesh.groups, members) = groups.into_iter().unzip();
 			}
+			MIRRORS => mirrors = section.list(5, |reader| Some((reader.u32()?, reader.u8()?)))?,
 			HOLES => mesh.holes = section.list(4, Reader::indices)?,
 			COLORS => {
 				mesh.colors = section.list(8, |reader| {
@@ -340,6 +357,11 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 			if layers.contains(&layer.id) {
 				layer.group = group.id;
 			}
+		}
+	}
+	for (id, flags) in mirrors {
+		if let Some(group) = mesh.groups.iter_mut().find(|group| group.id == id) {
+			group.mirror = [flags & 1 != 0, flags & 2 != 0];
 		}
 	}
 	mesh.prune_groups();
