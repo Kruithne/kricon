@@ -14,6 +14,7 @@ kricon is a purpose-built icon editing utility.
 | `D` | Decimates the selected vertices. Removes every second vertex along each chain of selected vertices, the reverse of one subdivision. |
 | `N` | Spaces the selected vertices evenly along each chain of selected vertices. The ends of each chain stay in place. |
 | `X` / `Y` | Locks the current transform to the X or Y axis. |
+| `N` | During a transform, locks the transform to the normal of the selected edges. |
 | `Alt` | Snaps the translated selection to the grid while held. |
 | `Shift` | Snaps the translated vertices to the X or Y of a nearby vertex while held. A guide line shows each snap. |
 | `0`-`9` / `-` | Rotates by the typed angle in degrees. A negative angle rotates clockwise. |

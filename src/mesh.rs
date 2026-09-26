@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 const MIN_MITER: f32 = 0.01;
+const MIN_NORMAL_WEIGHT: f32 = 1e-3;
 const FACE_COLOR: Color32 = Color32::WHITE;
 const CURVE_SEGMENTS: usize = 16;
 const SKEW_TOLERANCE: f32 = 0.1;
@@ -655,6 +656,35 @@ impl Mesh {
 		(0..self.vertices.len())
 			.filter(|&vertex| selected.contains(&components[vertex]))
 			.collect()
+	}
+
+	pub fn normal(&self, vertices: &[usize]) -> Option<Vec2> {
+		let mut selected = vec![false; self.vertices.len()];
+		for &vertex in vertices {
+			selected[vertex] = true;
+		}
+
+		let tangent = |both: bool| {
+			self.edges
+				.iter()
+				.filter(|&&[a, b]| {
+					if both {
+						selected[a] && selected[b]
+					} else {
+						selected[a] || selected[b]
+					}
+				})
+				.fold(Vec2::ZERO, |sum, &[a, b]| {
+					let edge = self.vertices[b] - self.vertices[a];
+					let doubled = vec2(edge.x * edge.x - edge.y * edge.y, 2.0 * edge.x * edge.y);
+					sum + doubled / edge.length().max(f32::EPSILON)
+				})
+		};
+		let sum = [true, false]
+			.map(tangent)
+			.into_iter()
+			.find(|sum| sum.length() > MIN_NORMAL_WEIGHT)?;
+		Some(Vec2::angled(sum.angle() / 2.0).rot90())
 	}
 
 	pub fn edge_loops(&self, vertices: &[usize]) -> Vec<usize> {

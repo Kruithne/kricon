@@ -12,7 +12,7 @@ use eframe::egui::{
 	color_picker::{self, Alpha},
 	ecolor::HexColor,
 	emath::Rot2,
-	pos2, vec2,
+	vec2,
 };
 use std::collections::HashSet;
 use std::f32::consts::TAU;
@@ -25,6 +25,7 @@ const EDGE_WIDTH: f32 = 1.5;
 const AXIS_WIDTH: f32 = 1.0;
 const AXIS_X_COLOR: Color32 = Color32::from_rgb(255, 51, 82);
 const AXIS_Y_COLOR: Color32 = Color32::from_rgb(139, 220, 0);
+const AXIS_NORMAL_COLOR: Color32 = Color32::from_rgb(40, 144, 255);
 pub const SELECTED_COLOR: Color32 = Color32::WHITE;
 const RECT_SIZE: f32 = 2.0;
 const CIRCLE_RADIUS: f32 = 1.0;
@@ -205,6 +206,7 @@ enum TransformKind {
 enum Axis {
 	X,
 	Y,
+	Normal,
 }
 
 struct Transform {
@@ -215,6 +217,7 @@ struct Transform {
 	drag: bool,
 	before: Selection,
 	axis: Option<Axis>,
+	normal: Option<Vec2>,
 	primitive: bool,
 	segments: Option<usize>,
 	typed: String,
@@ -249,15 +252,31 @@ impl Transform {
 		} else {
 			target
 		};
-		pos + (target - pos) * self.free()
+		pos + self.constrain(target - pos)
+	}
+
+	fn direction(&self, axis: Axis) -> Option<Vec2> {
+		match axis {
+			Axis::X => Some(Vec2::X),
+			Axis::Y => Some(Vec2::Y),
+			Axis::Normal => self.normal,
+		}
+	}
+
+	fn line(&self) -> Option<Vec2> {
+		let direction = self.direction(self.axis?)?;
+		match self.kind {
+			TransformKind::Rotate => Some(direction.rot90()),
+			_ => Some(direction),
+		}
+	}
+
+	fn constrain(&self, delta: Vec2) -> Vec2 {
+		self.line().map_or(delta, |line| line * delta.dot(line))
 	}
 
 	fn free(&self) -> Vec2 {
-		match (self.kind == TransformKind::Rotate, self.axis) {
-			(_, None) => Vec2::splat(1.0),
-			(false, Some(Axis::X)) | (true, Some(Axis::Y)) => Vec2::X,
-			(false, Some(Axis::Y)) | (true, Some(Axis::X)) => Vec2::Y,
-		}
+		self.line().map_or(Vec2::splat(1.0), Vec2::abs)
 	}
 
 	fn typed_angle(&self) -> Option<f32> {
@@ -284,6 +303,10 @@ impl Transform {
 	}
 
 	fn toggle_axis(&mut self, axis: Axis) {
+		if self.direction(axis).is_none() {
+			return;
+		}
+
 		self.axis = (self.axis != Some(axis)).then_some(axis);
 	}
 }
@@ -630,16 +653,18 @@ impl EditMode {
 		}
 
 		if let Operation::Transform(transform) = &self.operation {
-			if let Some(axis) = transform.axis {
-				axis_line(painter, axis, view.to_screen(transform.pivot));
+			if let Some(axis) = transform.axis
+				&& let Some(direction) = transform.direction(axis)
+			{
+				axis_line(painter, axis, direction, view.to_screen(transform.pivot));
 			}
 
 			let [x, y] = transform.guides;
 			if let Some(guide) = x {
-				axis_line(painter, Axis::Y, view.to_screen(guide));
+				axis_line(painter, Axis::Y, Vec2::Y, view.to_screen(guide));
 			}
 			if let Some(guide) = y {
-				axis_line(painter, Axis::X, view.to_screen(guide));
+				axis_line(painter, Axis::X, Vec2::X, view.to_screen(guide));
 			}
 		}
 
@@ -743,6 +768,8 @@ impl EditMode {
 					transform.toggle_axis(Axis::X);
 				} else if key(Key::Y) {
 					transform.toggle_axis(Axis::Y);
+				} else if key(Key::N) {
+					transform.toggle_axis(Axis::Normal);
 				} else if key(Key::Backspace) {
 					transform.typed.pop();
 				}
@@ -794,6 +821,7 @@ impl EditMode {
 				transform.guides = if input.modifiers.shift
 					&& !transform.primitive
 					&& transform.kind == TransformKind::Translate
+					&& transform.axis != Some(Axis::Normal)
 				{
 					align(
 						mesh,
@@ -1251,6 +1279,7 @@ impl EditMode {
 			return;
 		}
 
+		let normal = mesh.normal(&before);
 		self.operation = Operation::Transform(Transform {
 			kind,
 			anchor,
@@ -1262,6 +1291,7 @@ impl EditMode {
 				images: self.selection.images.clone(),
 			},
 			axis: None,
+			normal,
 			primitive: false,
 			segments: None,
 			typed: String::new(),
@@ -1394,7 +1424,7 @@ fn transform_selection(
 		}
 
 		if snap && transform.kind == TransformKind::Translate {
-			let offset = (corners[0].round() - corners[0]) * transform.free();
+			let offset = transform.constrain(corners[0].round() - corners[0]);
 			corners.iter_mut().for_each(|corner| *corner += offset);
 		}
 	}
@@ -1455,19 +1485,15 @@ fn attract(mesh: &mut Mesh, selection: &[usize], transform: &Transform, radius: 
 	}
 }
 
-fn axis_line(painter: &egui::Painter, axis: Axis, pos: Pos2) {
-	let clip = painter.clip_rect();
-	let (color, points) = match axis {
-		Axis::X => (
-			AXIS_X_COLOR,
-			[pos2(clip.left(), pos.y), pos2(clip.right(), pos.y)],
-		),
-		Axis::Y => (
-			AXIS_Y_COLOR,
-			[pos2(pos.x, clip.top()), pos2(pos.x, clip.bottom())],
-		),
+fn axis_line(painter: &egui::Painter, axis: Axis, direction: Vec2, pos: Pos2) {
+	let color = match axis {
+		Axis::X => AXIS_X_COLOR,
+		Axis::Y => AXIS_Y_COLOR,
+		Axis::Normal => AXIS_NORMAL_COLOR,
 	};
-	painter.line_segment(points, Stroke::new(AXIS_WIDTH, color));
+	let clip = painter.clip_rect();
+	let reach = direction * (clip.size().length() + clip.center().distance(pos));
+	painter.line_segment([pos - reach, pos + reach], Stroke::new(AXIS_WIDTH, color));
 }
 
 fn add_edge(shape: &mut egui::Mesh, a: Pos2, b: Pos2, color: Color32) {
