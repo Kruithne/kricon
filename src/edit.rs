@@ -351,6 +351,7 @@ pub struct EditMode {
 	magnet_radius: f32,
 	history: History,
 	paste_pending: bool,
+	image_paste: bool,
 	request: Option<FileAction>,
 	pointer: Option<Pos2>,
 }
@@ -374,6 +375,7 @@ impl Default for EditMode {
 			magnet_radius: MAGNET_RADIUS,
 			history: History::default(),
 			paste_pending: false,
+			image_paste: false,
 			request: None,
 			pointer: None,
 		}
@@ -419,6 +421,10 @@ impl EditMode {
 
 	pub fn take_request(&mut self) -> Option<FileAction> {
 		self.request.take()
+	}
+
+	pub fn take_image_paste(&mut self) -> bool {
+		std::mem::take(&mut self.image_paste)
 	}
 
 	pub fn revision(&self) -> u64 {
@@ -952,6 +958,7 @@ impl EditMode {
 			return;
 		}
 
+		self.image_paste = ctx.input(|input| input.modifiers.command && input.key_released(Key::V));
 		let pasted = ctx.input(|input| {
 			input.events.iter().find_map(|event| match event {
 				Event::Paste(text) => Some(text.clone()),

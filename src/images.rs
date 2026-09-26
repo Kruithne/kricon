@@ -5,6 +5,8 @@ use eframe::egui::{
 	epaint::Vertex, pos2, vec2,
 };
 use image::imageops::FilterType;
+use image::{ImageFormat, RgbaImage};
+use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -106,6 +108,20 @@ impl Loader {
 		}
 	}
 
+	pub fn paste(&self, ctx: &egui::Context) {
+		let max_side = max_side(ctx);
+		let sender = self.sender.clone();
+		let ctx = ctx.clone();
+		thread::spawn(move || {
+			if let Some(source) = clipboard_png()
+				&& let Some(decoded) = decode(source.into(), max_side)
+				&& sender.send(decoded).is_ok()
+			{
+				ctx.request_repaint();
+			}
+		});
+	}
+
 	pub fn receive(&self) -> impl Iterator<Item = Decoded> {
 		self.receiver.try_iter()
 	}
@@ -114,6 +130,20 @@ impl Loader {
 pub fn max_side(ctx: &egui::Context) -> u32 {
 	ctx.input(|input| input.max_texture_side)
 		.min(MAX_IMAGE_SIDE) as u32
+}
+
+fn clipboard_png() -> Option<Vec<u8>> {
+	let data = arboard::Clipboard::new().ok()?.get_image().ok()?;
+	let image = RgbaImage::from_raw(
+		data.width as u32,
+		data.height as u32,
+		data.bytes.into_owned(),
+	)?;
+	let mut png = Vec::new();
+	image
+		.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+		.ok()?;
+	Some(png)
 }
 
 pub fn decode(source: Arc<[u8]>, max_side: u32) -> Option<Decoded> {

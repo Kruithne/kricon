@@ -107,6 +107,9 @@ impl App {
 			.into_iter()
 			.partition(|file| is_svg(file.path()));
 		self.loader.load(ctx, images);
+		if self.edit.take_image_paste() {
+			self.loader.paste(ctx);
+		}
 
 		for file in vectors {
 			if let Ok(bytes) = file.bytes() {
