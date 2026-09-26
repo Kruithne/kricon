@@ -1166,36 +1166,65 @@ fn spline(points: &[Pos2]) -> Vec<Pos2> {
 	outline
 }
 
-fn triangulate(mut polygon: Vec<Pos2>) -> Vec<[Pos2; 3]> {
-	let mut triangles = Vec::new();
-	while polygon.len() > 3 {
-		let count = polygon.len();
-		let corner = |index: usize| {
-			[
-				polygon[(index + count - 1) % count],
-				polygon[index],
-				polygon[(index + 1) % count],
-			]
-		};
+fn triangulate(polygon: Vec<Pos2>) -> Vec<[Pos2; 3]> {
+	let count = polygon.len();
+	let mut triangles = Vec::with_capacity(count.saturating_sub(2));
+	if count < 3 {
+		return triangles;
+	}
 
-		let ear = (0..count).find(|&index| {
-			let [a, b, c] = corner(index);
-			cross(b - a, c - b) > 0.0
-				&& !polygon
-					.iter()
-					.any(|&p| p != a && p != b && p != c && inside_triangle(p, a, b, c))
-		});
+	let convex = |a: usize, b: usize, c: usize| {
+		cross(polygon[b] - polygon[a], polygon[c] - polygon[b]) > 0.0
+	};
+	let mut prev: Vec<usize> = (0..count)
+		.map(|index| (index + count - 1) % count)
+		.collect();
+	let mut next: Vec<usize> = (0..count).map(|index| (index + 1) % count).collect();
+	let mut reflex: Vec<bool> = (0..count)
+		.map(|index| !convex(prev[index], index, next[index]))
+		.collect();
+	let mut reflex_list: Vec<usize> = (0..count).filter(|&index| reflex[index]).collect();
 
-		let Some(ear) = ear else {
+	let mut remaining = count;
+	let mut index = 0;
+	let mut misses = 0;
+	while remaining > 3 {
+		if misses == remaining {
 			return triangles;
-		};
+		}
 
-		triangles.push(corner(ear));
-		polygon.remove(ear);
-	}
+		let [a, b, c] = [prev[index], index, next[index]].map(|corner| polygon[corner]);
+		let ear = !reflex[index]
+			&& !reflex_list.iter().any(|&other| {
+				let p = polygon[other];
+				p != a && p != b && p != c && inside_triangle(p, a, b, c)
+			});
 
-	if let [a, b, c] = polygon[..] {
+		if !ear {
+			index = next[index];
+			misses += 1;
+			continue;
+		}
+
 		triangles.push([a, b, c]);
+		let (before, after) = (prev[index], next[index]);
+		next[before] = after;
+		prev[after] = before;
+		remaining -= 1;
+
+		for neighbour in [before, after] {
+			let was_reflex = reflex[neighbour];
+			reflex[neighbour] = !convex(prev[neighbour], neighbour, next[neighbour]);
+			if reflex[neighbour] && !was_reflex {
+				reflex_list.push(neighbour);
+			}
+		}
+		reflex_list.retain(|&other| reflex[other]);
+
+		index = before;
+		misses = 0;
 	}
+
+	triangles.push([prev[index], index, next[index]].map(|corner| polygon[corner]));
 	triangles
 }
