@@ -645,7 +645,7 @@ impl Mesh {
 		}
 
 		let mut counts: HashMap<u32, usize> = HashMap::new();
-		let mut cutters: Vec<(usize, [Pos2; 3])> = Vec::new();
+		let mut cutters: Vec<(usize, Rect, [Pos2; 3])> = Vec::new();
 		for face in filled {
 			let id = self.vertex_layers[face[0]];
 			let count = counts.entry(id).or_default();
@@ -656,7 +656,7 @@ impl Mesh {
 				cutters.extend(
 					cache[&id].shapes[index]
 						.iter()
-						.map(|&triangle| (rank, triangle)),
+						.map(|&triangle| (rank, Rect::from_points(&triangle), triangle)),
 				);
 			}
 		}
@@ -672,10 +672,14 @@ impl Mesh {
 		let mut spans = Vec::new();
 		for id in layers {
 			let rank = ranks[&id];
+			let mut extent = Rect::NOTHING;
+			for &vertex in grouped[&id].iter().copied().flatten() {
+				extent.extend_with(self.vertices[vertex]);
+			}
 			let above: Vec<[Pos2; 3]> = cutters
 				.iter()
-				.filter(|(cutter, _)| *cutter < rank)
-				.map(|&(_, triangle)| triangle)
+				.filter(|(cutter, bounds, _)| *cutter < rank && bounds.intersects(extent))
+				.map(|&(_, _, triangle)| triangle)
 				.collect();
 			let colors: Vec<Color32> = grouped[&id]
 				.iter()
