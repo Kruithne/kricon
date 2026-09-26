@@ -21,6 +21,7 @@ kricon is a purpose-built icon editing utility.
 | `Enter` | Confirms the current transform. |
 | `Escape` | Cancels the current transform or closes the open menu. |
 | `E` | Extrudes the selected vertices. |
+| `Ctrl` + `B` | Bevels the selected corner vertices. Move the cursor away from the corners to increase the size. `Scroll` sets the number of segments. `Enter` or `Left Click` confirms, `Escape` or `Right Click` cancels. |
 | `Shift` + `D` | Duplicates the selected vertices. The copy goes above the original in the layer order. |
 | `F` | Connects the two selected vertices with an edge. |
 | `V` | Adds a vertex at the cursor. |

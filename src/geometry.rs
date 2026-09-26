@@ -1,5 +1,7 @@
-use eframe::egui::{Pos2, Rect, Vec2};
+use eframe::egui::{Pos2, Rect, Vec2, emath::Rot2};
 use std::f32::consts::TAU;
+
+const MIN_FILLET_BEND: f32 = 1e-4;
 
 #[derive(Clone, Copy)]
 pub enum Segment {
@@ -147,6 +149,21 @@ pub fn cross(a: Vec2, b: Vec2) -> f32 {
 
 pub fn turn(from: Vec2, to: Vec2) -> f32 {
 	cross(from, to).atan2(from.dot(to)).rem_euclid(TAU)
+}
+
+pub fn fillet(corner: Pos2, ends: [Pos2; 2], distance: f32, t: f32) -> Pos2 {
+	let [u, v] = ends.map(|end| (end - corner).normalized());
+	let (start, end) = (corner + u * distance, corner + v * distance);
+	let bisector = u + v;
+	let bend = bisector.length_sq();
+	if bend < MIN_FILLET_BEND {
+		return start.lerp(end, t);
+	}
+
+	let center = corner + bisector * (2.0 * distance / bend);
+	let (from, to) = (start - center, end - center);
+	let sweep = cross(from, to).atan2(from.dot(to));
+	center + Rot2::from_angle(sweep * t) * from
 }
 
 pub fn area(polygon: &[Pos2]) -> f32 {

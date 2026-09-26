@@ -38,6 +38,13 @@ pub struct FaceColor {
 	pub color: Color32,
 }
 
+pub struct Corner {
+	pub chain: Vec<usize>,
+	pub pos: Pos2,
+	pub ends: [Pos2; 2],
+	pub limit: f32,
+}
+
 #[derive(PartialEq)]
 pub struct Region {
 	pub outline: Vec<Pos2>,
@@ -380,6 +387,71 @@ impl Mesh {
 			}
 		}
 		(inner, directions)
+	}
+
+	pub fn bevel(&mut self, vertices: &[usize], segments: usize) -> Vec<Corner> {
+		let incident = |vertex: usize| -> Vec<usize> {
+			(0..self.edges.len())
+				.filter(|&index| self.edges[index].contains(&vertex))
+				.collect()
+		};
+		let targets: Vec<(usize, [usize; 2])> = vertices
+			.iter()
+			.filter_map(|&vertex| Some((vertex, incident(vertex).try_into().ok()?)))
+			.collect();
+		let other =
+			|edge: [usize; 2], vertex: usize| if edge[0] == vertex { edge[1] } else { edge[0] };
+		let reach = |pos: Pos2, end: usize| {
+			let length = pos.distance(self.vertices[end]);
+			if targets.iter().any(|&(target, _)| target == end) {
+				length / 2.0
+			} else {
+				length
+			}
+		};
+		let shapes: Vec<(Pos2, [Pos2; 2], f32)> = targets
+			.iter()
+			.map(|&(vertex, edges)| {
+				let pos = self.vertices[vertex];
+				let ends = edges.map(|index| other(self.edges[index], vertex));
+				let limit = reach(pos, ends[0]).min(reach(pos, ends[1]));
+				(pos, ends.map(|end| self.vertices[end]), limit)
+			})
+			.collect();
+
+		let mut corners = Vec::new();
+		for (&(vertex, [_, second]), (pos, ends, limit)) in targets.iter().zip(shapes) {
+			let mut chain = vec![vertex];
+			for _ in 0..segments {
+				chain.push(self.vertices.len());
+				self.vertices.push(pos);
+				self.vertex_layers.push(self.vertex_layers[vertex]);
+			}
+
+			let last = chain[segments];
+			for slot in &mut self.edges[second] {
+				if *slot == vertex {
+					*slot = last;
+				}
+			}
+			for pair in chain.windows(2) {
+				self.edges.push([pair[0], pair[1]]);
+			}
+			for key in self.face_keys() {
+				if key.contains(&vertex) {
+					key.extend(&chain[1..]);
+					key.sort_unstable();
+				}
+			}
+
+			corners.push(Corner {
+				chain,
+				pos,
+				ends,
+				limit,
+			});
+		}
+		corners
 	}
 
 	pub fn duplicate(&mut self, vertices: &[usize]) -> Vec<usize> {

@@ -1,10 +1,11 @@
 use crate::export;
+use crate::geometry::fillet;
 use crate::history::History;
 use crate::icon;
 use crate::images::Image;
 use crate::import::{self, Shape};
 use crate::menu::Menu;
-use crate::mesh::Mesh;
+use crate::mesh::{Corner, Mesh};
 use crate::panel;
 use crate::view::View;
 use eframe::egui::{
@@ -42,6 +43,8 @@ const BRUSH_STEP: f32 = 4.0;
 const MIN_BRUSH_RADIUS: f32 = 4.0;
 const MAX_BRUSH_RADIUS: f32 = 256.0;
 const MAGNET_RADIUS: f32 = 64.0;
+const MIN_BEVEL_SEGMENTS: usize = 1;
+const MAX_BEVEL_SEGMENTS: usize = 64;
 const CREATE_MENU: [(Action, &str); 4] = [
 	(Action::AddVertex, "Add Vertex (V)"),
 	(Action::AddRect, "Add Rect"),
@@ -59,13 +62,14 @@ const FILE_MENU: [(Action, &str); 3] = [
 	(Action::File(FileAction::Load), "Load Workspace"),
 	(Action::File(FileAction::Save), "Save Workspace (Ctrl+S)"),
 ];
-const MAIN_MENU: [(Action, &str); 29] = [
+const MAIN_MENU: [(Action, &str); 30] = [
 	(Action::Translate, "Translate (G)"),
 	(Action::Rotate, "Rotate (R)"),
 	(Action::Scale, "Scale (S)"),
 	(Action::Extrude, "Extrude (E)"),
 	(Action::Duplicate, "Duplicate (Shift+D)"),
 	(Action::Inset, "Inset (I)"),
+	(Action::Bevel, "Bevel (Ctrl+B)"),
 	(Action::Connect, "Connect (F)"),
 	(Action::Subdivide, "Subdivide (Shift+S)"),
 	(Action::SubdivideCurve, "Subdivide Curve (Alt+S)"),
@@ -113,6 +117,7 @@ enum Action {
 	Extrude,
 	Duplicate,
 	Inset,
+	Bevel,
 	Connect,
 	AddVertex,
 	AddRect,
@@ -161,6 +166,7 @@ enum Operation {
 		isolate: Option<Selection>,
 	},
 	Transform(Transform),
+	Bevel(Bevel),
 	Menu {
 		pos: Pos2,
 		kind: MenuKind,
@@ -295,6 +301,35 @@ impl Transform {
 	}
 }
 
+struct Bevel {
+	anchor: Pos2,
+	pivot: Pos2,
+	corners: Vec<Corner>,
+	segments: usize,
+	before: Selection,
+}
+
+impl Bevel {
+	fn apply(&self, mesh: &mut Mesh, cursor: Pos2) {
+		let offset = (cursor.distance(self.pivot) - self.anchor.distance(self.pivot)).max(0.0);
+		for corner in &self.corners {
+			let distance = offset.min(corner.limit);
+			for (index, &vertex) in corner.chain.iter().enumerate() {
+				let t = index as f32 / self.segments as f32;
+				mesh.vertices[vertex] = fillet(corner.pos, corner.ends, distance, t);
+			}
+		}
+	}
+
+	fn selection(&self) -> Selection {
+		let mut selection = self.before.clone();
+		for corner in &self.corners {
+			selection.vertices.extend(&corner.chain[1..]);
+		}
+		selection
+	}
+}
+
 #[derive(Clone, Default)]
 pub struct Selection {
 	vertices: Vec<usize>,
@@ -364,6 +399,10 @@ impl EditMode {
 			Operation::Transform(transform) => {
 				self.history.revert(mesh);
 				self.selection = transform.before;
+			}
+			Operation::Bevel(bevel) => {
+				self.history.revert(mesh);
+				self.selection = bevel.before;
 			}
 			Operation::Palette { .. } => self.history.revert(mesh),
 			_ => {}
@@ -443,7 +482,8 @@ impl EditMode {
 			}) | Operation::Transform(Transform {
 				magnet: Some(_),
 				..
-			}) | Operation::Brush
+			}) | Operation::Bevel(_)
+				| Operation::Brush
 		)
 	}
 
@@ -834,6 +874,25 @@ impl EditMode {
 					self.confirm(mesh);
 				}
 			}
+			Operation::Bevel(bevel) => {
+				let steps = wheel_steps(input);
+				if steps != 0 {
+					bevel.segments = bevel
+						.segments
+						.saturating_add_signed(steps)
+						.clamp(MIN_BEVEL_SEGMENTS, MAX_BEVEL_SEGMENTS);
+					self.history.revert(mesh);
+					bevel.corners = mesh.bevel(&bevel.before.vertices, bevel.segments);
+					self.selection = bevel.selection();
+				}
+				bevel.apply(mesh, cursor);
+
+				if key(Key::Escape) || pressed(PointerButton::Secondary) {
+					self.cancel(mesh);
+				} else if key(Key::Enter) || pressed(PointerButton::Primary) {
+					self.confirm(mesh);
+				}
+			}
 			Operation::Brush => {
 				let steps = wheel_steps(input) as f32;
 				self.brush_radius = (self.brush_radius + steps * BRUSH_STEP)
@@ -967,6 +1026,7 @@ impl EditMode {
 			Action::Extrude => self.create(mesh, cursor, Mesh::extrude),
 			Action::Duplicate => self.create(mesh, cursor, Mesh::duplicate),
 			Action::Inset => self.inset(mesh, cursor),
+			Action::Bevel => self.bevel(mesh, cursor),
 			Action::Connect => {
 				if let [a, b] = self.selection.vertices[..] {
 					self.record(mesh, |_, mesh| mesh.add_edge(a, b));
@@ -1059,6 +1119,7 @@ impl EditMode {
 	fn confirm(&mut self, mesh: &Mesh) {
 		let before = match std::mem::take(&mut self.operation) {
 			Operation::Transform(transform) => transform.before,
+			Operation::Bevel(bevel) => bevel.before,
 			Operation::Palette { .. } => self.selection.clone(),
 			_ => return,
 		};
@@ -1126,7 +1187,7 @@ impl EditMode {
 	fn settle_selection(&mut self) {
 		let editing = matches!(
 			self.operation,
-			Operation::Transform(_) | Operation::Palette { .. }
+			Operation::Transform(_) | Operation::Bevel(_) | Operation::Palette { .. }
 		);
 		if !self.show_outlines && !editing {
 			self.selection.vertices.clear();
@@ -1196,6 +1257,23 @@ impl EditMode {
 			false,
 			sources,
 		);
+	}
+
+	fn bevel(&mut self, mesh: &mut Mesh, cursor: Pos2) {
+		let corners = mesh.bevel(&self.selection.vertices, MIN_BEVEL_SEGMENTS);
+		if corners.is_empty() {
+			return;
+		}
+
+		let bevel = Bevel {
+			anchor: cursor,
+			pivot: center(corners.iter().map(|corner| corner.pos)),
+			corners,
+			segments: MIN_BEVEL_SEGMENTS,
+			before: self.selection.clone(),
+		};
+		self.selection = bevel.selection();
+		self.operation = Operation::Bevel(bevel);
 	}
 
 	fn add_primitive(
@@ -1366,6 +1444,8 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::Palette
 	} else if plain(Key::C) {
 		Action::Brush
+	} else if key(Key::B) && modifiers.ctrl {
+		Action::Bevel
 	} else if plain(Key::B) {
 		Action::BoxSelect
 	} else if plain(Key::K) {
