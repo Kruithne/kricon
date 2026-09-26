@@ -1,5 +1,5 @@
 use crate::images::{self, Decoded};
-use crate::mesh::{FaceColor, Layer, Mesh};
+use crate::mesh::{FaceColor, Group, Layer, Mesh};
 use eframe::egui::{self, Color32, Pos2, Vec2, pos2, vec2};
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -18,6 +18,7 @@ const VERTICES: &[u8; 4] = b"VERT";
 const EDGES: &[u8; 4] = b"EDGE";
 const LAYERS: &[u8; 4] = b"LAYR";
 const VERTEX_LAYERS: &[u8; 4] = b"VLAY";
+const GROUPS: &[u8; 4] = b"GRUP";
 const HOLES: &[u8; 4] = b"HOLE";
 const COLORS: &[u8; 4] = b"COLR";
 const IMAGES: &[u8; 4] = b"IMAG";
@@ -209,6 +210,22 @@ fn encode(mesh: &Mesh, meta: &Meta) -> Vec<u8> {
 		writer.u32(mesh.vertex_layers.len() as u32);
 		mesh.vertex_layers.iter().for_each(|&id| writer.u32(id));
 	});
+	writer.section(GROUPS, |writer| {
+		writer.u32(mesh.groups.len() as u32);
+		for group in &mesh.groups {
+			writer.u32(group.id);
+			writer.u32(group.name.len() as u32);
+			writer.bytes.extend_from_slice(group.name.as_bytes());
+			let members: Vec<u32> = mesh
+				.layers
+				.iter()
+				.filter(|layer| layer.group == group.id)
+				.map(|layer| layer.id)
+				.collect();
+			writer.u32(members.len() as u32);
+			members.iter().for_each(|&id| writer.u32(id));
+		}
+	});
 	writer.section(HOLES, |writer| {
 		writer.u32(mesh.holes.len() as u32);
 		mesh.holes.iter().for_each(|hole| writer.indices(hole));
@@ -242,6 +259,7 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 	let mut mesh = Mesh::default();
 	let mut meta = None;
 	let mut sources = Vec::new();
+	let mut members = Vec::new();
 	while !reader.bytes.is_empty() {
 		let tag = reader.array::<4>()?;
 		let len = usize::try_from(reader.u64()?).ok()?;
@@ -270,11 +288,22 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 						id,
 						curve: flags & CURVE_FLAG != 0,
 						holdout: flags & HOLDOUT_FLAG != 0,
+						group: 0,
 						name,
 					})
 				})?
 			}
 			VERTEX_LAYERS => mesh.vertex_layers = section.list(4, Reader::u32)?,
+			GROUPS => {
+				let groups = section.list(12, |reader| {
+					let id = reader.u32()?;
+					let len = reader.u32()? as usize;
+					let name = String::from_utf8(reader.take(len)?.to_vec()).ok()?;
+					let layers = reader.list(4, Reader::u32)?;
+					Some((Group { id, name }, layers))
+				})?;
+				(mesh.groups, members) = groups.into_iter().unzip();
+			}
 			HOLES => mesh.holes = section.list(4, Reader::indices)?,
 			COLORS => {
 				mesh.colors = section.list(8, |reader| {
@@ -296,6 +325,15 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 			_ => {}
 		}
 	}
+
+	for (group, layers) in mesh.groups.iter().zip(members) {
+		for layer in &mut mesh.layers {
+			if layers.contains(&layer.id) {
+				layer.group = group.id;
+			}
+		}
+	}
+	mesh.prune_groups();
 
 	is_valid(&mesh).then_some((mesh, meta, sources))
 }

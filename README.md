@@ -39,6 +39,8 @@ kricon is a purpose-built icon editing utility.
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
 | `P` | Toggles a hole in the faces enclosed by the selected vertices. |
 | `H` | Toggles holdout on the layers of the selected vertices. A holdout cuts through all faces below it in the layer order. Images are not cut. |
+| `Ctrl` + `G` | Groups the layers of the selected vertices. The group shows in the layer stack and expands while its layers are selected. |
+| `Ctrl` + `Shift` + `G` | Ungroups the groups that contain the selected vertices. |
 | `Y` | Opens a colour palette at the cursor to set the colour of the selected faces. `Enter` or `Left Click` outside confirms, `Escape` cancels. |
 | `Ctrl` + `Y` | Copies the colour of the selected face to the clipboard as a hex code. |
 | `Shift` + `Y` | Sets the colour of the selected faces from a `#XXXXXX` or `#XXX` hex code in the clipboard. |

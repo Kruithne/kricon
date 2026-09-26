@@ -22,6 +22,13 @@ pub struct Layer {
 	pub id: u32,
 	pub curve: bool,
 	pub holdout: bool,
+	pub group: u32,
+	pub name: String,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct Group {
+	pub id: u32,
 	pub name: String,
 }
 
@@ -184,6 +191,7 @@ pub struct Mesh {
 	pub edges: Vec<[usize; 2]>,
 	pub layers: Vec<Layer>,
 	pub vertex_layers: Vec<u32>,
+	pub groups: Vec<Group>,
 	pub holes: Vec<Vec<usize>>,
 	pub colors: Vec<FaceColor>,
 	pub images: Vec<Image>,
@@ -194,6 +202,7 @@ pub struct Change {
 	edges: Splice<[usize; 2]>,
 	layers: Splice<Layer>,
 	vertex_layers: Splice<u32>,
+	groups: Splice<Group>,
 	holes: Splice<Vec<usize>>,
 	colors: Splice<FaceColor>,
 	images: Splice<Image>,
@@ -205,6 +214,7 @@ impl Change {
 			&& self.edges.is_empty()
 			&& self.layers.is_empty()
 			&& self.vertex_layers.is_empty()
+			&& self.groups.is_empty()
 			&& self.holes.is_empty()
 			&& self.colors.is_empty()
 			&& self.images.is_empty()
@@ -218,6 +228,7 @@ impl Mesh {
 			edges: Splice::new(&self.edges, &after.edges),
 			layers: Splice::new(&self.layers, &after.layers),
 			vertex_layers: Splice::new(&self.vertex_layers, &after.vertex_layers),
+			groups: Splice::new(&self.groups, &after.groups),
 			holes: Splice::new(&self.holes, &after.holes),
 			colors: Splice::new(&self.colors, &after.colors),
 			images: Splice::new(&self.images, &after.images),
@@ -229,6 +240,7 @@ impl Mesh {
 		change.edges.apply(&mut self.edges, forward);
 		change.layers.apply(&mut self.layers, forward);
 		change.vertex_layers.apply(&mut self.vertex_layers, forward);
+		change.groups.apply(&mut self.groups, forward);
 		change.holes.apply(&mut self.holes, forward);
 		change.colors.apply(&mut self.colors, forward);
 		change.images.apply(&mut self.images, forward);
@@ -242,6 +254,7 @@ impl Mesh {
 				id: layer,
 				curve: false,
 				holdout: false,
+				group: 0,
 				name: String::new(),
 			},
 		);
@@ -258,6 +271,7 @@ impl Mesh {
 				id: layer,
 				curve,
 				holdout: false,
+				group: 0,
 				name: String::new(),
 			},
 		);
@@ -374,16 +388,99 @@ impl Mesh {
 		copies
 	}
 
-	pub fn move_layer(&mut self, from: usize, target: usize) {
-		let layer = self.layers.remove(from);
+	pub fn move_layer(&mut self, id: u32, target: usize, group: u32) {
+		let from = self.layers.iter().position(|layer| layer.id == id).unwrap();
+		let mut layer = self.layers.remove(from);
+		layer.group = group;
 		let to = if target > from { target - 1 } else { target };
 		self.layers.insert(to, layer);
+	}
+
+	pub fn move_group(&mut self, id: u32, target: usize) {
+		let before = self.layers[..target]
+			.iter()
+			.filter(|layer| layer.group == id)
+			.count();
+		let (block, rest): (Vec<Layer>, Vec<Layer>) = std::mem::take(&mut self.layers)
+			.into_iter()
+			.partition(|layer| layer.group == id);
+		self.layers = rest;
+		let to = self.block_start(target - before);
+		self.layers.splice(to..to, block);
+	}
+
+	pub fn group(&mut self, vertices: &[usize]) {
+		let ids: HashSet<u32> = vertices
+			.iter()
+			.map(|&vertex| self.vertex_layers[vertex])
+			.collect();
+		let Some(first) = self.layers.iter().position(|layer| ids.contains(&layer.id)) else {
+			return;
+		};
+
+		let group = (1..)
+			.find(|&id| !self.groups.iter().any(|group| group.id == id))
+			.unwrap();
+		self.groups.push(Group {
+			id: group,
+			name: String::new(),
+		});
+
+		let (mut block, rest): (Vec<Layer>, Vec<Layer>) = std::mem::take(&mut self.layers)
+			.into_iter()
+			.partition(|layer| ids.contains(&layer.id));
+		self.layers = rest;
+		for layer in &mut block {
+			layer.group = group;
+		}
+		let to = self.block_start(first);
+		self.layers.splice(to..to, block);
+	}
+
+	pub fn ungroup(&mut self, vertices: &[usize]) {
+		let ids: HashSet<u32> = vertices
+			.iter()
+			.map(|&vertex| self.vertex_layers[vertex])
+			.collect();
+		let groups: HashSet<u32> = self
+			.layers
+			.iter()
+			.filter(|layer| ids.contains(&layer.id))
+			.map(|layer| layer.group)
+			.collect();
+		for layer in &mut self.layers {
+			if groups.contains(&layer.group) {
+				layer.group = 0;
+			}
+		}
 	}
 
 	pub fn rename_layer(&mut self, id: u32, name: String) {
 		if let Some(layer) = self.layers.iter_mut().find(|layer| layer.id == id) {
 			layer.name = name;
 		}
+	}
+
+	pub fn rename_group(&mut self, id: u32, name: String) {
+		if let Some(group) = self.groups.iter_mut().find(|group| group.id == id) {
+			group.name = name;
+		}
+	}
+
+	pub fn prune_groups(&mut self) {
+		let used: HashSet<u32> = self.layers.iter().map(|layer| layer.group).collect();
+		self.groups.retain(|group| used.contains(&group.id));
+	}
+
+	fn block_start(&self, mut index: usize) -> usize {
+		while index > 0
+			&& index < self.layers.len()
+			&& self.layers[index].group != 0
+			&& self.layers[index - 1].group == self.layers[index].group
+		{
+			index -= 1;
+		}
+		index
 	}
 
 	pub fn layer(&self, vertex: usize) -> u32 {
@@ -425,11 +522,11 @@ impl Mesh {
 			.collect()
 	}
 
-	pub fn layer_vertices(&self, layer: u32) -> impl Iterator<Item = usize> {
+	pub fn layer_vertices(&self, layers: &[u32]) -> impl Iterator<Item = usize> {
 		self.vertex_layers
 			.iter()
 			.enumerate()
-			.filter(move |&(_, &id)| id == layer)
+			.filter(move |&(_, id)| layers.contains(id))
 			.map(|(vertex, _)| vertex)
 	}
 
@@ -1142,13 +1239,19 @@ impl Mesh {
 				.iter()
 				.position(|layer| layer.id == *owner)
 				.unwrap();
-			let Layer { curve, holdout, .. } = self.layers[position];
+			let Layer {
+				curve,
+				holdout,
+				group,
+				..
+			} = self.layers[position];
 			self.layers.insert(
 				position + usize::from(!above),
 				Layer {
 					id,
 					curve,
 					holdout,
+					group,
 					name: String::new(),
 				},
 			);

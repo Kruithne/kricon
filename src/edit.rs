@@ -75,7 +75,7 @@ const FILE_MENU: [(Action, &str, &str); 3] = [
 		icon::BORING,
 	),
 ];
-const MAIN_MENU: [(Action, &str, &str); 27] = [
+const MAIN_MENU: [(Action, &str, &str); 29] = [
 	(Action::Translate, "Translate (G)", icon::BORING),
 	(Action::Rotate, "Rotate (R)", icon::BORING),
 	(Action::Scale, "Scale (S)", icon::BORING),
@@ -101,6 +101,8 @@ const MAIN_MENU: [(Action, &str, &str); 27] = [
 	(Action::Magnet, "Toggle Magnet (K)", icon::BORING),
 	(Action::ToggleHole, "Toggle Hole (P)", icon::BORING),
 	(Action::ToggleHoldout, "Toggle Holdout (H)", icon::BORING),
+	(Action::Group, "Group (Ctrl+G)", icon::BORING),
+	(Action::Ungroup, "Ungroup (Ctrl+Shift+G)", icon::BORING),
 	(Action::Palette, "Set Colour (Y)", icon::BORING),
 	(Action::CopyColor, "Copy Colour (Ctrl+Y)", icon::BORING),
 	(Action::PasteColor, "Paste Colour (Shift+Y)", icon::BORING),
@@ -148,6 +150,8 @@ enum Action {
 	Dissolve,
 	ToggleHole,
 	ToggleHoldout,
+	Group,
+	Ungroup,
 	Palette,
 	CopyColor,
 	PasteColor,
@@ -412,9 +416,14 @@ impl EditMode {
 		self.history.checkpoint()
 	}
 
-	pub fn move_layer(&mut self, mesh: &mut Mesh, from: usize, target: usize) {
+	pub fn move_layer(&mut self, mesh: &mut Mesh, layer: u32, target: usize, group: u32) {
 		self.cancel(mesh);
-		self.record(mesh, |_, mesh| mesh.move_layer(from, target));
+		self.record(mesh, |_, mesh| mesh.move_layer(layer, target, group));
+	}
+
+	pub fn move_group(&mut self, mesh: &mut Mesh, group: u32, target: usize) {
+		self.cancel(mesh);
+		self.record(mesh, |_, mesh| mesh.move_group(group, target));
 	}
 
 	pub fn rename_layer(&mut self, mesh: &mut Mesh, layer: u32, name: String) {
@@ -422,10 +431,15 @@ impl EditMode {
 		self.record(mesh, |_, mesh| mesh.rename_layer(layer, name));
 	}
 
-	pub fn delete_layer(&mut self, mesh: &mut Mesh, layer: u32) {
+	pub fn rename_group(&mut self, mesh: &mut Mesh, group: u32, name: String) {
+		self.cancel(mesh);
+		self.record(mesh, |_, mesh| mesh.rename_group(group, name));
+	}
+
+	pub fn delete_layers(&mut self, mesh: &mut Mesh, layers: &[u32]) {
 		self.cancel(mesh);
 		self.record(mesh, |edit, mesh| {
-			let removed: Vec<usize> = mesh.layer_vertices(layer).collect();
+			let removed: Vec<usize> = mesh.layer_vertices(layers).collect();
 			edit.selection
 				.vertices
 				.retain(|vertex| !removed.contains(vertex));
@@ -469,25 +483,19 @@ impl EditMode {
 		&self.selection.vertices
 	}
 
-	pub fn select_layer(&mut self, mesh: &mut Mesh, layer: u32, shift: bool) {
+	pub fn select_layers(&mut self, mesh: &mut Mesh, layers: &[u32], shift: bool) {
 		self.cancel(mesh);
 		self.operation = Operation::Idle;
 
-		let deselect = shift
-			&& self
-				.selection
-				.vertices
-				.iter()
-				.any(|&vertex| mesh.layer(vertex) == layer);
+		let within = |vertex: usize| layers.contains(&mesh.layer(vertex));
+		let deselect = shift && self.selection.vertices.iter().any(|&vertex| within(vertex));
 		if !shift {
 			self.selection.vertices.clear();
 		}
 
-		self.selection
-			.vertices
-			.retain(|&vertex| mesh.layer(vertex) != layer);
+		self.selection.vertices.retain(|&vertex| !within(vertex));
 		if !deselect {
-			self.selection.vertices.extend(mesh.layer_vertices(layer));
+			self.selection.vertices.extend(mesh.layer_vertices(layers));
 		}
 		self.settle_selection();
 	}
@@ -1045,6 +1053,10 @@ impl EditMode {
 			Action::ToggleHoldout => self.record(mesh, |edit, mesh| {
 				mesh.toggle_holdout(&edit.selection.vertices)
 			}),
+			Action::Group => self.record(mesh, |edit, mesh| mesh.group(&edit.selection.vertices)),
+			Action::Ungroup => {
+				self.record(mesh, |edit, mesh| mesh.ungroup(&edit.selection.vertices))
+			}
 			Action::Palette => {
 				if let Some(color) = mesh.face_color(&self.selection.vertices) {
 					self.operation = Operation::Palette { pos: cursor, color };
@@ -1085,6 +1097,7 @@ impl EditMode {
 	fn record(&mut self, mesh: &mut Mesh, action: impl FnOnce(&mut Self, &mut Mesh)) {
 		let before = self.selection.clone();
 		action(self, mesh);
+		mesh.prune_groups();
 		self.history.commit(mesh, before, &self.selection);
 	}
 
@@ -1325,6 +1338,10 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::Undo
 	} else if key(Key::R) && modifiers.ctrl {
 		Action::Redo
+	} else if key(Key::G) && modifiers.ctrl && modifiers.shift {
+		Action::Ungroup
+	} else if key(Key::G) && modifiers.ctrl {
+		Action::Group
 	} else if plain(Key::G) {
 		Action::Translate
 	} else if plain(Key::R) {

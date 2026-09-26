@@ -3,7 +3,7 @@ use crate::icon::{self, Icon};
 use crate::mesh::Mesh;
 use crate::panel::{self, Header};
 use eframe::egui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const PANEL_WIDTH: f32 = 200.0;
 const INDICATOR_SIZE: f32 = 8.0;
@@ -11,12 +11,32 @@ const INDICATOR_GAP: f32 = 2.0;
 const DROP_COLOR: egui::Color32 = egui::Color32::WHITE;
 const MARGIN: f32 = 12.0;
 const ICON_GAP: f32 = 4.0;
+const INDENT: f32 = 12.0;
+const ARROW_SIZE: f32 = 8.0;
+
+#[derive(Clone, Copy, PartialEq, Hash, Debug)]
+enum Item {
+	Layer(u32),
+	Group(u32),
+}
+
+struct Row {
+	item: Item,
+	start: usize,
+	group: u32,
+	name: String,
+	label: String,
+	selected: usize,
+	total: usize,
+	open: Option<bool>,
+}
 
 pub struct Layers {
 	header: Header,
 	edit_icon: Icon,
 	delete_icon: Icon,
-	editing: Option<(u32, String)>,
+	editing: Option<(Item, String)>,
+	expanded: HashSet<u32>,
 }
 
 impl Default for Layers {
@@ -26,6 +46,7 @@ impl Default for Layers {
 			edit_icon: Icon::new(icon::BORING),
 			delete_icon: Icon::new(icon::BORING),
 			editing: None,
+			expanded: HashSet::new(),
 		}
 	}
 }
@@ -38,19 +59,12 @@ impl Layers {
 		edit: &mut EditMode,
 		accent: egui::Color32,
 	) {
-		let mut sizes: HashMap<u32, usize> = HashMap::new();
-		for vertex in 0..mesh.vertices.len() {
-			*sizes.entry(mesh.layer(vertex)).or_default() += 1;
-		}
-
-		let mut selected: HashMap<u32, usize> = HashMap::new();
-		for &vertex in edit.selection() {
-			*selected.entry(mesh.layer(vertex)).or_default() += 1;
-		}
+		let rows = self.rows(mesh, edit);
 		let mut clicked = None;
 		let mut moved = None;
 		let mut renamed = None;
 		let mut deleted = None;
+		let mut toggled = None;
 
 		egui::Window::new("Layers")
 			.frame(panel::bordered_frame(accent))
@@ -65,7 +79,7 @@ impl Layers {
 
 				self.header.show(ui, PANEL_WIDTH, accent);
 
-				if mesh.layers.is_empty() {
+				if rows.is_empty() {
 					let (rect, _) = ui.allocate_exact_size(
 						egui::vec2(PANEL_WIDTH, panel::ITEM_HEIGHT + 2.0 * panel::PADDING),
 						egui::Sense::hover(),
@@ -79,10 +93,10 @@ impl Layers {
 					);
 				}
 
-				let mut rows = Vec::new();
+				let mut rects = Vec::new();
 				let mut dragged = None;
-				for (index, layer) in mesh.layers.iter().enumerate() {
-					let id = layer.id;
+				for (index, row) in rows.iter().enumerate() {
+					let item = row.item;
 					let (rect, response, color) = panel::item(
 						ui,
 						egui::vec2(PANEL_WIDTH, panel::ITEM_HEIGHT),
@@ -90,22 +104,51 @@ impl Layers {
 						egui::Sense::click_and_drag(),
 					);
 					if response.clicked() {
-						clicked = Some(id);
+						clicked = Some(item);
 					}
 					if response.dragged() || response.drag_stopped() {
 						dragged = Some((index, response.drag_stopped()));
 					}
 
+					let indent = if row.open.is_none() && row.group != 0 {
+						INDENT
+					} else {
+						0.0
+					};
 					let indicator = egui::Rect::from_center_size(
-						rect.left_center() + egui::vec2(panel::PADDING + INDICATOR_SIZE / 2.0, 0.0),
+						rect.left_center()
+							+ egui::vec2(indent + panel::PADDING + INDICATOR_SIZE / 2.0, 0.0),
 						egui::Vec2::splat(INDICATOR_SIZE),
 					);
-					match selected.get(&id) {
-						Some(count) if *count == sizes[&id] => {
+					match row.selected {
+						0 => {}
+						count if count == row.total => {
 							ui.painter().rect_filled(indicator, 0.0, accent);
 						}
-						Some(_) => draw_partial(ui.painter(), indicator, accent),
-						None => {}
+						_ => draw_partial(ui.painter(), indicator, accent),
+					}
+
+					let mut lead = indicator;
+					if let Some(open) = row.open {
+						lead = egui::Rect::from_center_size(
+							indicator.right_center()
+								+ egui::vec2(panel::PADDING + ARROW_SIZE / 2.0, 0.0),
+							egui::Vec2::splat(ARROW_SIZE),
+						);
+						let response = ui.interact(
+							lead.expand(ICON_GAP),
+							ui.id().with(("Expand", item)),
+							egui::Sense::click(),
+						);
+						let tint = if response.hovered() {
+							panel::CONTENT_ACTIVE_COLOR
+						} else {
+							color
+						};
+						draw_arrow(ui.painter(), lead, open, tint);
+						if response.clicked() {
+							toggled = Some(row.group);
+						}
 					}
 
 					let delete_rect = egui::Rect::from_center_size(
@@ -115,29 +158,29 @@ impl Layers {
 					);
 					let edit_rect =
 						delete_rect.translate(egui::vec2(-panel::ICON_SIZE - ICON_GAP, 0.0));
-					if icon_button(ui, &mut self.delete_icon, delete_rect, color, "Delete", id)
-						.clicked()
+					if icon_button(
+						ui,
+						&mut self.delete_icon,
+						delete_rect,
+						color,
+						"Delete",
+						item,
+					)
+					.clicked()
 					{
-						deleted = Some(id);
+						deleted = Some(item);
 					}
 
-					let name = if !layer.name.is_empty() {
-						layer.name.clone()
-					} else if layer.curve {
-						format!("Curve {id}")
-					} else {
-						format!("Shape {id}")
-					};
-					if icon_button(ui, &mut self.edit_icon, edit_rect, color, "Rename", id)
+					if icon_button(ui, &mut self.edit_icon, edit_rect, color, "Rename", item)
 						.clicked()
 					{
-						self.editing = Some((id, name.clone()));
+						self.editing = Some((item, row.name.clone()));
 					}
 
 					match &mut self.editing {
-						Some((editing, text)) if *editing == id => {
+						Some((editing, text)) if *editing == item => {
 							let text_rect = egui::Rect::from_x_y_ranges(
-								indicator.right() + panel::PADDING..=edit_rect.left() - ICON_GAP,
+								lead.right() + panel::PADDING..=edit_rect.left() - ICON_GAP,
 								rect.y_range(),
 							);
 							let response = ui.put(
@@ -150,21 +193,14 @@ impl Layers {
 								response.request_focus();
 							} else if response.lost_focus() {
 								if !ui.input(|input| input.key_pressed(egui::Key::Escape)) {
-									renamed = Some((id, text.trim().to_string()));
+									renamed = Some((item, text.trim().to_string()));
 								}
 								self.editing = None;
 							}
 						}
-						_ => {
-							let label = if layer.holdout {
-								format!("{name} (Holdout)")
-							} else {
-								name
-							};
-							panel::paint_label(ui, indicator, &label, color);
-						}
+						_ => panel::paint_label(ui, lead, &row.label, color),
 					}
-					rows.push(rect);
+					rects.push(rect);
 				}
 
 				let Some((from, stopped)) = dragged else {
@@ -174,36 +210,139 @@ impl Layers {
 					return;
 				};
 
-				let target = rows.iter().filter(|row| row.center().y < pointer.y).count();
+				let target = rects
+					.iter()
+					.filter(|row| row.center().y < pointer.y)
+					.count();
 				if stopped {
-					moved = Some((from, target));
+					let (index, group) = match rows.get(target) {
+						Some(row) if row.open.is_none() => (row.start, row.group),
+						Some(row) => (row.start, 0),
+						None => (mesh.layers.len(), 0),
+					};
+					moved = Some((rows[from].item, index, group));
 					return;
 				}
 
 				let y = match target {
-					0 => rows[0].top(),
-					_ => rows[target - 1].bottom(),
+					0 => rects[0].top(),
+					_ => rects[target - 1].bottom(),
 				};
 				ui.painter()
-					.hline(rows[0].x_range(), y, egui::Stroke::new(2.0, DROP_COLOR));
+					.hline(rects[0].x_range(), y, egui::Stroke::new(2.0, DROP_COLOR));
 			});
 
-		if let Some((from, target)) = moved {
-			edit.move_layer(mesh, from, target);
+		if let Some(group) = toggled
+			&& !self.expanded.remove(&group)
+		{
+			self.expanded.insert(group);
 		}
 
-		if let Some((layer, name)) = renamed {
-			edit.rename_layer(mesh, layer, name);
+		let members = |mesh: &Mesh, item: Item| match item {
+			Item::Layer(id) => vec![id],
+			Item::Group(group) => mesh
+				.layers
+				.iter()
+				.filter(|layer| layer.group == group)
+				.map(|layer| layer.id)
+				.collect(),
+		};
+
+		match moved {
+			Some((Item::Layer(id), target, group)) => edit.move_layer(mesh, id, target, group),
+			Some((Item::Group(group), target, _)) => edit.move_group(mesh, group, target),
+			None => {}
 		}
 
-		if let Some(layer) = deleted {
-			edit.delete_layer(mesh, layer);
+		match renamed {
+			Some((Item::Layer(id), name)) => edit.rename_layer(mesh, id, name),
+			Some((Item::Group(group), name)) => edit.rename_group(mesh, group, name),
+			None => {}
 		}
 
-		if let Some(layer) = clicked {
+		if let Some(item) = deleted {
+			let layers = members(mesh, item);
+			edit.delete_layers(mesh, &layers);
+		}
+
+		if let Some(item) = clicked {
+			let layers = members(mesh, item);
 			let shift = ctx.input(|input| input.modifiers.shift);
-			edit.select_layer(mesh, layer, shift);
+			edit.select_layers(mesh, &layers, shift);
 		}
+	}
+
+	fn rows(&self, mesh: &Mesh, edit: &EditMode) -> Vec<Row> {
+		let mut sizes: HashMap<u32, usize> = HashMap::new();
+		for vertex in 0..mesh.vertices.len() {
+			*sizes.entry(mesh.layer(vertex)).or_default() += 1;
+		}
+
+		let mut selected: HashMap<u32, usize> = HashMap::new();
+		for &vertex in edit.selection() {
+			*selected.entry(mesh.layer(vertex)).or_default() += 1;
+		}
+
+		let mut rows = Vec::new();
+		let mut open = true;
+		for (index, layer) in mesh.layers.iter().enumerate() {
+			let id = layer.id;
+			let group = layer.group;
+			if group != 0 && (index == 0 || mesh.layers[index - 1].group != group) {
+				let members = mesh.layers[index..]
+					.iter()
+					.take_while(|layer| layer.group == group);
+				let count = members
+					.clone()
+					.map(|layer| selected.get(&layer.id).copied().unwrap_or(0))
+					.sum();
+				let total = members.map(|layer| sizes[&layer.id]).sum();
+				open = count > 0 || self.expanded.contains(&group);
+				let name = mesh
+					.groups
+					.iter()
+					.find(|entry| entry.id == group && !entry.name.is_empty())
+					.map_or_else(|| format!("Group {group}"), |entry| entry.name.clone());
+				rows.push(Row {
+					item: Item::Group(group),
+					start: index,
+					group,
+					label: name.clone(),
+					name,
+					selected: count,
+					total,
+					open: Some(open),
+				});
+			}
+
+			if group != 0 && !open {
+				continue;
+			}
+
+			let name = if !layer.name.is_empty() {
+				layer.name.clone()
+			} else if layer.curve {
+				format!("Curve {id}")
+			} else {
+				format!("Shape {id}")
+			};
+			let label = if layer.holdout {
+				format!("{name} (Holdout)")
+			} else {
+				name.clone()
+			};
+			rows.push(Row {
+				item: Item::Layer(id),
+				start: index,
+				group,
+				name,
+				label,
+				selected: selected.get(&id).copied().unwrap_or(0),
+				total: sizes[&id],
+				open: None,
+			});
+		}
+		rows
 	}
 }
 
@@ -213,10 +352,10 @@ fn icon_button(
 	rect: egui::Rect,
 	color: egui::Color32,
 	hint: &str,
-	layer: u32,
+	item: Item,
 ) -> egui::Response {
 	let response = ui
-		.interact(rect, ui.id().with((hint, layer)), egui::Sense::click())
+		.interact(rect, ui.id().with((hint, item)), egui::Sense::click())
 		.on_hover_text(hint);
 	let tint = if response.hovered() {
 		panel::CONTENT_ACTIVE_COLOR
@@ -225,6 +364,19 @@ fn icon_button(
 	};
 	panel::paint_icon(ui, icon, rect, tint);
 	response
+}
+
+fn draw_arrow(painter: &egui::Painter, rect: egui::Rect, open: bool, color: egui::Color32) {
+	let points = if open {
+		vec![rect.left_top(), rect.right_top(), rect.center_bottom()]
+	} else {
+		vec![rect.left_top(), rect.right_center(), rect.left_bottom()]
+	};
+	painter.add(egui::Shape::convex_polygon(
+		points,
+		color,
+		egui::Stroke::NONE,
+	));
 }
 
 fn draw_partial(painter: &egui::Painter, rect: egui::Rect, accent: egui::Color32) {
