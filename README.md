@@ -1,4 +1,4 @@
-# <img src="res/kricon.svg" width="18"> kricon <img align="right" hspace="3" vspace="10" src="res/icons/ico_linux.svg" height="18"> <img align="right" hspace="3" vspace="10" src="res/icons/ico_macos.svg" height="18"> <img align="right" hspace="3" vspace="10" src="res/icons/ico_win.svg" height="18">
+# <img src="res/kricon.svg" width="18"> kricon
 
 kricon is a purpose-built icon editing utility.
 
@@ -13,7 +13,13 @@ The controls should feel familiar to anyone who's used Blender. Check out the co
 <img src="screenshots/kricon_screenshot_1.png">
 <p align="center"><i>Screenshot of the kricon interface</i></p>
 
-## Download
+## <img src="res/icons/ico_download.svg" width="18"> Download
+
+<p align="center">
+	<img src="res/icons/ico_win.svg" hspace=10 height=32>
+	<img src="res/icons/ico_macos.svg" hspace=10 height=32>
+	<img src="res/icons/ico_linux.svg" hspace=10 height=32>
+</p>
 
 Release versions of the tool are built automatically for <b>Windows</b>, <b>macOS</b> (Intel/Apple) and <b>Linux</b> from the latest source code and can be found on the [releases page](https://github.com/Kruithne/kricon/releases).
 
