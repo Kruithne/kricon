@@ -12,6 +12,7 @@ const MIN_MITER: f32 = 0.01;
 const MIN_NORMAL_WEIGHT: f32 = 1e-3;
 const FACE_COLOR: Color32 = Color32::WHITE;
 const CURVE_SEGMENTS: usize = 16;
+const SHARP_COPIES: usize = 3;
 const SKEW_TOLERANCE: f32 = 0.1;
 const MIN_PIECE_AREA: f32 = 1e-6;
 const MIN_FIT_AREA: f32 = 1e-6;
@@ -169,10 +170,15 @@ impl Geometry {
 			&& source.edges == mesh.edges
 			&& source.layers == mesh.layers
 			&& source.vertex_layers == mesh.vertex_layers
+			&& source.sharp == mesh.sharp
 			&& source.holes == mesh.holes
 			&& source.colors == mesh.colors
 		{
 			return;
+		}
+
+		if self.source.sharp != mesh.sharp {
+			self.layers.clear();
 		}
 
 		let faces = mesh.faces();
@@ -187,6 +193,7 @@ impl Geometry {
 		source.edges.clone_from(&mesh.edges);
 		source.layers.clone_from(&mesh.layers);
 		source.vertex_layers.clone_from(&mesh.vertex_layers);
+		source.sharp.clone_from(&mesh.sharp);
 		source.holes.clone_from(&mesh.holes);
 		source.colors.clone_from(&mesh.colors);
 	}
@@ -198,6 +205,7 @@ pub struct Mesh {
 	pub edges: Vec<[usize; 2]>,
 	pub layers: Vec<Layer>,
 	pub vertex_layers: Vec<u32>,
+	pub sharp: Vec<bool>,
 	pub groups: Vec<Group>,
 	pub holes: Vec<Vec<usize>>,
 	pub colors: Vec<FaceColor>,
@@ -209,6 +217,7 @@ pub struct Change {
 	edges: Splice<[usize; 2]>,
 	layers: Splice<Layer>,
 	vertex_layers: Splice<u32>,
+	sharp: Splice<bool>,
 	groups: Splice<Group>,
 	holes: Splice<Vec<usize>>,
 	colors: Splice<FaceColor>,
@@ -221,6 +230,7 @@ impl Change {
 			&& self.edges.is_empty()
 			&& self.layers.is_empty()
 			&& self.vertex_layers.is_empty()
+			&& self.sharp.is_empty()
 			&& self.groups.is_empty()
 			&& self.holes.is_empty()
 			&& self.colors.is_empty()
@@ -235,6 +245,7 @@ impl Mesh {
 			edges: Splice::new(&self.edges, &after.edges),
 			layers: Splice::new(&self.layers, &after.layers),
 			vertex_layers: Splice::new(&self.vertex_layers, &after.vertex_layers),
+			sharp: Splice::new(&self.sharp, &after.sharp),
 			groups: Splice::new(&self.groups, &after.groups),
 			holes: Splice::new(&self.holes, &after.holes),
 			colors: Splice::new(&self.colors, &after.colors),
@@ -247,6 +258,7 @@ impl Mesh {
 		change.edges.apply(&mut self.edges, forward);
 		change.layers.apply(&mut self.layers, forward);
 		change.vertex_layers.apply(&mut self.vertex_layers, forward);
+		change.sharp.apply(&mut self.sharp, forward);
 		change.groups.apply(&mut self.groups, forward);
 		change.holes.apply(&mut self.holes, forward);
 		change.colors.apply(&mut self.colors, forward);
@@ -266,6 +278,7 @@ impl Mesh {
 			},
 		);
 		self.vertex_layers.push(layer);
+		self.sharp.push(false);
 		self.vertices.push(pos);
 		self.vertices.len() - 1
 	}
@@ -287,6 +300,7 @@ impl Mesh {
 		for (index, &pos) in points.iter().enumerate() {
 			self.vertices.push(pos);
 			self.vertex_layers.push(layer);
+			self.sharp.push(false);
 			self.edges
 				.push([offset + index, offset + (index + 1) % points.len()]);
 		}
@@ -358,6 +372,7 @@ impl Mesh {
 			copies.insert(vertex, self.vertices.len());
 			self.vertices.push(pos);
 			self.vertex_layers.push(self.vertex_layers[vertex]);
+			self.sharp.push(self.sharp[vertex]);
 		}
 
 		let map = |vertex: usize| copies.get(&vertex).copied().unwrap_or(vertex);
@@ -426,6 +441,7 @@ impl Mesh {
 				chain.push(self.vertices.len());
 				self.vertices.push(pos);
 				self.vertex_layers.push(self.vertex_layers[vertex]);
+				self.sharp.push(false);
 			}
 
 			let last = chain[segments];
@@ -582,6 +598,18 @@ impl Mesh {
 		}
 	}
 
+	pub fn toggle_sharp(&mut self, vertices: &[usize]) {
+		let targets: Vec<usize> = vertices
+			.iter()
+			.copied()
+			.filter(|&vertex| self.is_curve(vertex))
+			.collect();
+		let sharp = !targets.iter().all(|&vertex| self.sharp[vertex]);
+		for vertex in targets {
+			self.sharp[vertex] = sharp;
+		}
+	}
+
 	fn curve_outlines(&self, faces: &[Vec<usize>]) -> Vec<(Rect, Vec<Pos2>)> {
 		let curves = self.curves();
 		faces
@@ -680,6 +708,7 @@ impl Mesh {
 			let midpoint = self.vertices.len();
 			self.vertices.push(pos);
 			self.vertex_layers.push(self.vertex_layers[a]);
+			self.sharp.push(false);
 			self.edges[index] = [a, midpoint];
 			self.edges.push([midpoint, b]);
 
@@ -1107,9 +1136,14 @@ impl Mesh {
 	}
 
 	fn segments(&self, face: &[usize], curves: &HashSet<u32>) -> Vec<Segment> {
-		let count = face.len();
-		let point = |index: usize| self.vertices[face[index % count]];
 		let curve = curves.contains(&self.vertex_layers[face[0]]);
+		let points = if curve {
+			self.controls(face)
+		} else {
+			face.iter().map(|&vertex| self.vertices[vertex]).collect()
+		};
+		let count = points.len();
+		let point = |index: usize| points[index % count];
 		(0..count)
 			.map(|index| {
 				if !curve {
@@ -1119,6 +1153,15 @@ impl Mesh {
 				Segment::Cubic(bspline_span(
 					[0, 1, 2, 3].map(|offset| point(index + offset)),
 				))
+			})
+			.collect()
+	}
+
+	fn controls(&self, face: &[usize]) -> Vec<Pos2> {
+		face.iter()
+			.flat_map(|&vertex| {
+				let copies = if self.sharp[vertex] { SHARP_COPIES } else { 1 };
+				std::iter::repeat_n(self.vertices[vertex], copies)
 			})
 			.collect()
 	}
@@ -1134,6 +1177,7 @@ impl Mesh {
 		for &vertex in vertices {
 			self.vertices.push(self.vertices[vertex]);
 			self.vertex_layers.push(self.vertex_layers[vertex]);
+			self.sharp.push(self.sharp[vertex]);
 		}
 
 		for index in 0..self.edges.len() {
@@ -1270,11 +1314,10 @@ impl Mesh {
 	}
 
 	fn outline(&self, face: &[usize], curves: &HashSet<u32>) -> Vec<Pos2> {
-		let points: Vec<Pos2> = face.iter().map(|&vertex| self.vertices[vertex]).collect();
 		if curves.contains(&self.vertex_layers[face[0]]) {
-			spline(&points)
+			spline(&self.controls(face))
 		} else {
-			points
+			face.iter().map(|&vertex| self.vertices[vertex]).collect()
 		}
 	}
 
@@ -1399,6 +1442,7 @@ impl Mesh {
 	fn remove_vertex(&mut self, index: usize) {
 		self.vertices.remove(index);
 		self.vertex_layers.remove(index);
+		self.sharp.remove(index);
 		self.edges.retain(|edge| !edge.contains(&index));
 
 		for vertex in self.edges.iter_mut().flatten() {

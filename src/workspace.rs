@@ -18,6 +18,7 @@ const VERTICES: &[u8; 4] = b"VERT";
 const EDGES: &[u8; 4] = b"EDGE";
 const LAYERS: &[u8; 4] = b"LAYR";
 const VERTEX_LAYERS: &[u8; 4] = b"VLAY";
+const SHARP: &[u8; 4] = b"SHRP";
 const GROUPS: &[u8; 4] = b"GRUP";
 const HOLES: &[u8; 4] = b"HOLE";
 const COLORS: &[u8; 4] = b"COLR";
@@ -210,6 +211,12 @@ fn encode(mesh: &Mesh, meta: &Meta) -> Vec<u8> {
 		writer.u32(mesh.vertex_layers.len() as u32);
 		mesh.vertex_layers.iter().for_each(|&id| writer.u32(id));
 	});
+	writer.section(SHARP, |writer| {
+		let sharp: Vec<usize> = (0..mesh.sharp.len())
+			.filter(|&vertex| mesh.sharp[vertex])
+			.collect();
+		writer.indices(&sharp);
+	});
 	writer.section(GROUPS, |writer| {
 		writer.u32(mesh.groups.len() as u32);
 		for group in &mesh.groups {
@@ -260,6 +267,7 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 	let mut meta = None;
 	let mut sources = Vec::new();
 	let mut members = Vec::new();
+	let mut sharp = Vec::new();
 	while !reader.bytes.is_empty() {
 		let tag = reader.array::<4>()?;
 		let len = usize::try_from(reader.u64()?).ok()?;
@@ -294,6 +302,7 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 				})?
 			}
 			VERTEX_LAYERS => mesh.vertex_layers = section.list(4, Reader::u32)?,
+			SHARP => sharp = section.indices()?,
 			GROUPS => {
 				let groups = section.list(12, |reader| {
 					let id = reader.u32()?;
@@ -334,6 +343,11 @@ fn decode(bytes: &[u8]) -> Option<(Mesh, Option<Meta>, Sources)> {
 		}
 	}
 	mesh.prune_groups();
+
+	mesh.sharp = vec![false; mesh.vertices.len()];
+	for vertex in sharp {
+		*mesh.sharp.get_mut(vertex)? = true;
+	}
 
 	is_valid(&mesh).then_some((mesh, meta, sources))
 }

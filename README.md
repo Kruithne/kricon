@@ -55,6 +55,7 @@ Release versions of the tool are built automatically for <b>Windows</b>, <b>macO
 | `X` | Dissolves the selected vertices and keeps the line between their neighbours. |
 | `P` | Toggles a hole in the faces enclosed by the selected vertices. |
 | `H` | Toggles holdout on the layers of the selected vertices. A holdout cuts through all faces below it in the layer order. Images are not cut. |
+| `U` | Toggles sharp on the selected control points of a curve. A sharp point makes a corner in the curve. |
 | `Ctrl` + `G` | Groups the layers of the selected vertices. The group shows in the layer stack and expands while its layers are selected. |
 | `Ctrl` + `Shift` + `G` | Ungroups the groups that contain the selected vertices. |
 | `Y` | Opens a colour palette at the cursor to set the colour of the selected faces. `Enter` or `Left Click` outside confirms, `Escape` cancels. |

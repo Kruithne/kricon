@@ -19,6 +19,7 @@ use std::collections::HashSet;
 use std::f32::consts::TAU;
 
 const VERTEX_SIZE: f32 = 6.0;
+const SHARP_SIZE: f32 = 9.0;
 const VERTEX_HIT_RADIUS: f32 = 16.0;
 const ALIGN_RADIUS: f32 = 8.0;
 const LINK_PICK_RADIUS: f32 = 32.0;
@@ -62,7 +63,7 @@ const FILE_MENU: [(Action, &str); 3] = [
 	(Action::File(FileAction::Load), "Load Workspace"),
 	(Action::File(FileAction::Save), "Save Workspace (Ctrl+S)"),
 ];
-const MAIN_MENU: [(Action, &str); 30] = [
+const MAIN_MENU: [(Action, &str); 31] = [
 	(Action::Translate, "Translate (G)"),
 	(Action::Rotate, "Rotate (R)"),
 	(Action::Scale, "Scale (S)"),
@@ -85,6 +86,7 @@ const MAIN_MENU: [(Action, &str); 30] = [
 	(Action::Magnet, "Toggle Magnet (K)"),
 	(Action::ToggleHole, "Toggle Hole (P)"),
 	(Action::ToggleHoldout, "Toggle Holdout (H)"),
+	(Action::ToggleSharp, "Toggle Sharp (U)"),
 	(Action::Group, "Group (Ctrl+G)"),
 	(Action::Ungroup, "Ungroup (Ctrl+Shift+G)"),
 	(Action::Palette, "Set Colour (Y)"),
@@ -137,6 +139,7 @@ enum Action {
 	Dissolve,
 	ToggleHole,
 	ToggleHoldout,
+	ToggleSharp,
 	Group,
 	Ungroup,
 	Palette,
@@ -726,8 +729,16 @@ impl EditMode {
 				continue;
 			}
 
-			let rect = Rect::from_center_size(view.to_screen(vertex), Vec2::splat(VERTEX_SIZE));
-			shape.add_colored_rect(rect, color(selected[index]));
+			let center = view.to_screen(vertex);
+			let color = color(selected[index]);
+			if mesh.sharp[index] {
+				add_diamond(&mut shape, center, color);
+			} else {
+				shape.add_colored_rect(
+					Rect::from_center_size(center, Vec2::splat(VERTEX_SIZE)),
+					color,
+				);
+			}
 		}
 		painter.add(shape);
 	}
@@ -1096,6 +1107,9 @@ impl EditMode {
 			Action::ToggleHoldout => self.record(mesh, |edit, mesh| {
 				mesh.toggle_holdout(&edit.selection.vertices)
 			}),
+			Action::ToggleSharp => self.record(mesh, |edit, mesh| {
+				mesh.toggle_sharp(&edit.selection.vertices)
+			}),
 			Action::Group => self.record(mesh, |edit, mesh| mesh.group(&edit.selection.vertices)),
 			Action::Ungroup => {
 				self.record(mesh, |edit, mesh| mesh.ungroup(&edit.selection.vertices))
@@ -1445,6 +1459,8 @@ fn key_action(input: &egui::InputState) -> Option<Action> {
 		Action::Space
 	} else if plain(Key::H) {
 		Action::ToggleHoldout
+	} else if plain(Key::U) {
+		Action::ToggleSharp
 	} else if plain(Key::P) {
 		Action::ToggleHole
 	} else if key(Key::Y) && modifiers.ctrl {
@@ -1583,6 +1599,17 @@ fn add_edge(shape: &mut egui::Mesh, a: Pos2, b: Pos2, color: Color32) {
 	shape.colored_vertex(b + offset, color);
 	shape.colored_vertex(b - offset, color);
 	shape.colored_vertex(a - offset, color);
+	shape.add_triangle(index, index + 1, index + 2);
+	shape.add_triangle(index, index + 2, index + 3);
+}
+
+fn add_diamond(shape: &mut egui::Mesh, center: Pos2, color: Color32) {
+	let (x, y) = (Vec2::X * (SHARP_SIZE / 2.0), Vec2::Y * (SHARP_SIZE / 2.0));
+	let index = shape.vertices.len() as u32;
+	shape.colored_vertex(center - y, color);
+	shape.colored_vertex(center + x, color);
+	shape.colored_vertex(center + y, color);
+	shape.colored_vertex(center - x, color);
 	shape.add_triangle(index, index + 1, index + 2);
 	shape.add_triangle(index, index + 2, index + 3);
 }
