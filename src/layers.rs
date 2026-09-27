@@ -47,7 +47,7 @@ impl Default for Layers {
 			header: Header::new("Layers", Some(icon::LAYERS)),
 			edit_icon: Icon::new(icon::EDIT),
 			delete_icon: Icon::new(icon::TRASH),
-			mirror_icon: Icon::new(icon::BORING),
+			mirror_icon: Icon::new(icon::MIRROR),
 			editing: None,
 			expanded: HashSet::new(),
 		}

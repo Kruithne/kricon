@@ -381,7 +381,7 @@ impl Default for EditMode {
 				.submenu("Create (W)", Menu::new("Create", None).items(&CREATE_MENU))
 				.submenu("Merge (M)", Menu::new("Merge", None).items(&MERGE_MENU))
 				.items(&MAIN_MENU),
-			mirror_menu: Menu::new("Mirror", Some(icon::BORING)).items(&MIRROR_MENU),
+			mirror_menu: Menu::new("Mirror", Some(icon::MIRROR)).items(&MIRROR_MENU),
 			brush_radius: BRUSH_RADIUS,
 			magnet: false,
 			magnet_radius: MAGNET_RADIUS,
