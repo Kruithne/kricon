@@ -123,6 +123,7 @@ pub fn svg(fills: Vec<Fill>) -> Option<String> {
 		})
 		.filter(|(_, contours)| !contours.is_empty())
 		.collect();
+	let paths = merge(paths);
 
 	let bounds = paths
 		.iter()
@@ -146,6 +147,22 @@ pub fn svg(fills: Vec<Fill>) -> Option<String> {
 	}
 	svg.push_str("</svg>");
 	Some(svg)
+}
+
+fn merge(paths: Vec<(Color32, Vec<Vec<Segment>>)>) -> Vec<(Color32, Vec<Vec<Segment>>)> {
+	let mut merged: Vec<(Color32, Vec<Vec<Segment>>)> = Vec::new();
+	for (color, contours) in paths {
+		match merged.iter_mut().find(|(other, _)| *other == color) {
+			Some((_, existing)) => existing.extend(contours),
+			None => merged.push((color, contours)),
+		}
+	}
+
+	merged
+		.into_iter()
+		.map(|(color, contours)| (color, subtract(&contours, &[])))
+		.filter(|(_, contours)| !contours.is_empty())
+		.collect()
 }
 
 fn translate(contours: &[Vec<Segment>], offset: Vec2) -> Vec<Vec<Segment>> {

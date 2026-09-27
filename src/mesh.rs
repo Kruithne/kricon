@@ -1167,18 +1167,20 @@ impl Mesh {
 		let holdouts = self.holdouts();
 		let curves = self.curves();
 		let colors = self.face_colors();
-		let rank = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
+		let rank_of = |face: &[usize]| ranks[&self.vertex_layers[face[0]]];
 		let (cutters, faces): (Vec<_>, Vec<_>) = self
 			.filled_faces()
 			.into_iter()
 			.partition(|face| holdouts.contains(&self.vertex_layers[face[0]]));
 
-		let mut fills: Vec<(usize, Fill)> = Vec::new();
-		for face in faces
+		let chosen: Vec<&Vec<usize>> = faces
 			.iter()
 			.filter(|face| face.iter().all(|vertex| selected.contains(vertex)))
-		{
-			let (rank, color) = (rank(face), color_in(&colors, &face_key(face)));
+			.collect();
+
+		let mut fills: Vec<(usize, Fill)> = Vec::new();
+		for face in &chosen {
+			let (rank, color) = (rank_of(face), color_in(&colors, &face_key(face)));
 			let contour = self.segments(face, &curves);
 			if let Some((_, fill)) = fills
 				.iter_mut()
@@ -1188,9 +1190,13 @@ impl Mesh {
 				continue;
 			}
 
+			let occluders = chosen.iter().filter(|other| {
+				rank_of(other) < rank && color_in(&colors, &face_key(other)) != color
+			});
 			let cutters = cutters
 				.iter()
-				.filter(|cutter| ranks[&self.vertex_layers[cutter[0]]] < rank)
+				.filter(|cutter| rank_of(cutter) < rank)
+				.chain(occluders.copied())
 				.map(|cutter| self.segments(cutter, &curves))
 				.collect();
 			fills.push((
